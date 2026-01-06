@@ -56,8 +56,12 @@ export class RealtimeManager {
   private config: DeviceConfig
   private channels: RealtimeChannel[] = []
   private heartbeatInterval: NodeJS.Timeout | null = null
+  private pollingInterval: NodeJS.Timeout | null = null
   private isConnected: boolean = false
   private startTime: Date = new Date()
+  private usePolling: boolean = false
+  private lastOrderCheck: Date = new Date()
+  private processedOrderIds: Set<string> = new Set()
 
   // Callbacks
   private onKitchenOrder: KitchenOrderCallback | null = null
@@ -110,132 +114,16 @@ export class RealtimeManager {
 
   async connect(): Promise<boolean> {
     try {
-      logger.info('Connecting to Supabase Realtime...')
+      logger.info('Connecting to Supabase...')
 
-      // 1. Listen for new orders (INSERT on orders)
-      const ordersChannel = this.supabase
-        .channel(`bitsperbox-orders-${this.config.restaurantId}`)
-        .on(
-          'postgres_changes',
-          {
-            event: 'INSERT',
-            schema: 'public',
-            table: 'orders',
-            filter: `restaurant_id=eq.${this.config.restaurantId}`,
-          },
-          async (payload: RealtimePayload<Order>) => {
-            await this.handleNewOrder(payload.new)
-          }
-        )
-        .on(
-          'postgres_changes',
-          {
-            event: 'UPDATE',
-            schema: 'public',
-            table: 'orders',
-            filter: `restaurant_id=eq.${this.config.restaurantId}`,
-          },
-          async (payload: RealtimePayload<Order>) => {
-            await this.handleOrderUpdate(payload.new, payload.old)
-          }
-        )
-        .subscribe((status, err) => {
-          if (status === 'SUBSCRIBED') {
-            logger.success('Subscribed to orders channel')
-          } else if (status === 'CHANNEL_ERROR') {
-            logger.error('Orders channel error', err)
-          }
-        })
-      this.channels.push(ordersChannel)
+      // First, try Realtime connection
+      const realtimeSuccess = await this.tryRealtimeConnection()
 
-      // 2. Listen for customer ticket events (INSERT/UPDATE on order_tickets)
-      const ticketsChannel = this.supabase
-        .channel(`bitsperbox-tickets-${this.config.restaurantId}`)
-        .on(
-          'postgres_changes',
-          {
-            event: 'INSERT',
-            schema: 'public',
-            table: 'order_tickets',
-            filter: `restaurant_id=eq.${this.config.restaurantId}`,
-          },
-          async (payload: RealtimePayload<OrderTicket>) => {
-            if (payload.new.ticket_type === 'customer') {
-              await this.handleNewCustomerTicket(payload.new)
-            }
-          }
-        )
-        .on(
-          'postgres_changes',
-          {
-            event: 'UPDATE',
-            schema: 'public',
-            table: 'order_tickets',
-            filter: `restaurant_id=eq.${this.config.restaurantId}`,
-          },
-          async (payload: RealtimePayload<OrderTicket>) => {
-            // Check if print_requested_at changed (reprint request)
-            if (
-              payload.new.ticket_type === 'customer' &&
-              payload.new.print_requested_at &&
-              payload.new.print_requested_at !== payload.old?.print_requested_at
-            ) {
-              await this.handleReprintTicket(payload.new)
-            }
-          }
-        )
-        .subscribe((status, err) => {
-          if (status === 'SUBSCRIBED') {
-            logger.success('Subscribed to tickets channel')
-          } else if (status === 'CHANNEL_ERROR') {
-            logger.error('Tickets channel error', err)
-          }
-        })
-      this.channels.push(ticketsChannel)
-
-      // 3. Listen for cash report events (INSERT/UPDATE on cash_reports)
-      const reportsChannel = this.supabase
-        .channel(`bitsperbox-reports-${this.config.restaurantId}`)
-        .on(
-          'postgres_changes',
-          {
-            event: 'INSERT',
-            schema: 'public',
-            table: 'cash_reports',
-            filter: `restaurant_id=eq.${this.config.restaurantId}`,
-          },
-          async (payload: RealtimePayload<CashReport>) => {
-            if (payload.new.print_requested_at) {
-              await this.handleNewCashReport(payload.new)
-            }
-          }
-        )
-        .on(
-          'postgres_changes',
-          {
-            event: 'UPDATE',
-            schema: 'public',
-            table: 'cash_reports',
-            filter: `restaurant_id=eq.${this.config.restaurantId}`,
-          },
-          async (payload: RealtimePayload<CashReport>) => {
-            // Check if print_requested_at changed (reprint request)
-            if (
-              payload.new.print_requested_at &&
-              payload.new.print_requested_at !== payload.old?.print_requested_at
-            ) {
-              await this.handleReprintReport(payload.new)
-            }
-          }
-        )
-        .subscribe((status, err) => {
-          if (status === 'SUBSCRIBED') {
-            logger.success('Subscribed to reports channel')
-          } else if (status === 'CHANNEL_ERROR') {
-            logger.error('Reports channel error', err)
-          }
-        })
-      this.channels.push(reportsChannel)
+      if (!realtimeSuccess) {
+        logger.warn('Realtime connection failed, using polling fallback')
+        this.usePolling = true
+        this.startPolling()
+      }
 
       // Start heartbeat
       this.startHeartbeat()
@@ -243,8 +131,217 @@ export class RealtimeManager {
       this.isConnected = true
       return true
     } catch (error) {
-      logger.error('Failed to connect to Supabase Realtime', error)
+      logger.error('Failed to connect to Supabase', error)
       return false
+    }
+  }
+
+  private async tryRealtimeConnection(): Promise<boolean> {
+    return new Promise((resolve) => {
+      let resolved = false
+      const timeout = setTimeout(() => {
+        if (!resolved) {
+          resolved = true
+          logger.warn('Realtime subscription timed out after 15s')
+          resolve(false)
+        }
+      }, 15000)
+
+      // 1. Listen for new orders (INSERT on orders)
+      const ordersChannel = this.supabase
+        .channel(`bitsperbox-orders-${this.config.restaurantId}`)
+        .on(
+          'postgres_changes' as 'system',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'orders',
+            filter: `restaurant_id=eq.${this.config.restaurantId}`,
+          } as any,
+          async (payload: RealtimePayload<Order>) => {
+            await this.handleNewOrder(payload.new)
+          }
+        )
+        .on(
+          'postgres_changes' as 'system',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'orders',
+            filter: `restaurant_id=eq.${this.config.restaurantId}`,
+          } as any,
+          async (payload: RealtimePayload<Order>) => {
+            await this.handleOrderUpdate(payload.new, payload.old)
+          }
+        )
+        .subscribe((status: string, err: Error | undefined) => {
+          if (status === 'SUBSCRIBED') {
+            logger.success('Subscribed to orders channel (Realtime)')
+            if (!resolved) {
+              resolved = true
+              clearTimeout(timeout)
+              this.setupAdditionalChannels()
+              resolve(true)
+            }
+          } else if (status === 'CHANNEL_ERROR') {
+            logger.error('Orders channel error', err)
+            if (!resolved) {
+              resolved = true
+              clearTimeout(timeout)
+              resolve(false)
+            }
+          } else if (status === 'TIMED_OUT') {
+            logger.warn('Orders channel timed out')
+            if (!resolved) {
+              resolved = true
+              clearTimeout(timeout)
+              resolve(false)
+            }
+          }
+        })
+      this.channels.push(ordersChannel)
+    })
+  }
+
+  private setupAdditionalChannels() {
+    // 2. Listen for customer ticket events
+    const ticketsChannel = this.supabase
+      .channel(`bitsperbox-tickets-${this.config.restaurantId}`)
+      .on(
+        'postgres_changes' as 'system',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'order_tickets',
+          filter: `restaurant_id=eq.${this.config.restaurantId}`,
+        } as any,
+        async (payload: RealtimePayload<OrderTicket>) => {
+          if (payload.new.ticket_type === 'customer') {
+            await this.handleNewCustomerTicket(payload.new)
+          }
+        }
+      )
+      .on(
+        'postgres_changes' as 'system',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'order_tickets',
+          filter: `restaurant_id=eq.${this.config.restaurantId}`,
+        } as any,
+        async (payload: RealtimePayload<OrderTicket>) => {
+          if (
+            payload.new.ticket_type === 'customer' &&
+            payload.new.print_requested_at &&
+            payload.new.print_requested_at !== payload.old?.print_requested_at
+          ) {
+            await this.handleReprintTicket(payload.new)
+          }
+        }
+      )
+      .subscribe((status: string) => {
+        if (status === 'SUBSCRIBED') {
+          logger.success('Subscribed to tickets channel')
+        }
+      })
+    this.channels.push(ticketsChannel)
+
+    // 3. Listen for cash report events
+    const reportsChannel = this.supabase
+      .channel(`bitsperbox-reports-${this.config.restaurantId}`)
+      .on(
+        'postgres_changes' as 'system',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'cash_reports',
+          filter: `restaurant_id=eq.${this.config.restaurantId}`,
+        } as any,
+        async (payload: RealtimePayload<CashReport>) => {
+          if (payload.new.print_requested_at) {
+            await this.handleNewCashReport(payload.new)
+          }
+        }
+      )
+      .on(
+        'postgres_changes' as 'system',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'cash_reports',
+          filter: `restaurant_id=eq.${this.config.restaurantId}`,
+        } as any,
+        async (payload: RealtimePayload<CashReport>) => {
+          if (
+            payload.new.print_requested_at &&
+            payload.new.print_requested_at !== payload.old?.print_requested_at
+          ) {
+            await this.handleReprintReport(payload.new)
+          }
+        }
+      )
+      .subscribe((status: string) => {
+        if (status === 'SUBSCRIBED') {
+          logger.success('Subscribed to reports channel')
+        }
+      })
+    this.channels.push(reportsChannel)
+  }
+
+  // ============================================
+  // Polling Fallback
+  // ============================================
+
+  private startPolling() {
+    logger.info('Starting polling mode (checking every 3 seconds)...')
+    this.lastOrderCheck = new Date()
+
+    // Poll for new orders every 3 seconds
+    this.pollingInterval = setInterval(async () => {
+      await this.pollForNewOrders()
+    }, 3000)
+
+    // Initial poll
+    this.pollForNewOrders()
+  }
+
+  private async pollForNewOrders() {
+    try {
+      const checkTime = new Date(this.lastOrderCheck.getTime() - 5000) // 5 second overlap
+
+      // Get orders created since last check
+      const { data: orders, error } = await this.supabase
+        .from('orders')
+        .select('*')
+        .eq('restaurant_id', this.config.restaurantId)
+        .gte('created_at', checkTime.toISOString())
+        .order('created_at', { ascending: true })
+
+      if (error) {
+        logger.error('Polling error', error)
+        return
+      }
+
+      this.lastOrderCheck = new Date()
+
+      if (orders && orders.length > 0) {
+        for (const order of orders) {
+          // Skip if already processed
+          if (this.processedOrderIds.has(order.id)) continue
+
+          this.processedOrderIds.add(order.id)
+
+          // Clean up old processed IDs (keep last 100)
+          if (this.processedOrderIds.size > 100) {
+            const ids = Array.from(this.processedOrderIds)
+            this.processedOrderIds = new Set(ids.slice(-50))
+          }
+
+          await this.handleNewOrder(order as Order)
+        }
+      }
+    } catch (error) {
+      logger.error('Polling failed', error)
     }
   }
 
@@ -258,8 +355,14 @@ export class RealtimeManager {
       clearInterval(this.heartbeatInterval)
       this.heartbeatInterval = null
     }
+
+    if (this.pollingInterval) {
+      clearInterval(this.pollingInterval)
+      this.pollingInterval = null
+    }
+
     this.isConnected = false
-    logger.info('Disconnected from Supabase Realtime')
+    logger.info('Disconnected from Supabase')
   }
 
   // ============================================
@@ -267,7 +370,7 @@ export class RealtimeManager {
   // ============================================
 
   private async handleNewOrder(order: Order) {
-    logger.info(`New order received: #${order.order_number}`)
+    logger.info(`📦 New order received: #${order.order_number}`)
 
     // Try to claim the print job
     const claim = await this.claimPrintJob({
@@ -326,10 +429,10 @@ export class RealtimeManager {
         .map(item => item.addition_group_id || 'default')
     )
 
-    for (const [groupId, items] of additionGroups) {
+    for (const [groupId] of additionGroups) {
       if (oldAdditionGroupIds.has(groupId)) continue // Already processed
 
-      logger.info(`Addition detected for order #${newOrder.order_number}, group ${groupId}`)
+      logger.info(`➕ Addition detected for order #${newOrder.order_number}, group ${groupId}`)
 
       const claim = await this.claimPrintJob({
         jobType: 'addition',
@@ -356,7 +459,7 @@ export class RealtimeManager {
   }
 
   private async handleNewCustomerTicket(ticket: OrderTicket) {
-    logger.info(`New customer ticket for order ${ticket.order_id}`)
+    logger.info(`🧾 New customer ticket for order ${ticket.order_id}`)
 
     const claim = await this.claimPrintJob({
       jobType: 'customer_ticket',
@@ -382,13 +485,12 @@ export class RealtimeManager {
   }
 
   private async handleReprintTicket(ticket: OrderTicket) {
-    logger.info(`Reprint requested for ticket ${ticket.id}`)
-    // Same logic as new ticket
+    logger.info(`🔄 Reprint requested for ticket ${ticket.id}`)
     await this.handleNewCustomerTicket(ticket)
   }
 
   private async handleNewCashReport(report: CashReport) {
-    logger.info(`New cash report: ${report.report_type}`)
+    logger.info(`📊 New cash report: ${report.report_type}`)
 
     const claim = await this.claimPrintJob({
       jobType: 'cash_report',
@@ -413,8 +515,7 @@ export class RealtimeManager {
   }
 
   private async handleReprintReport(report: CashReport) {
-    logger.info(`Reprint requested for report ${report.id}`)
-    // Same logic as new report
+    logger.info(`🔄 Reprint requested for report ${report.id}`)
     await this.handleNewCashReport(report)
   }
 
@@ -461,6 +562,7 @@ export class RealtimeManager {
     try {
       await this.supabase.rpc('complete_print_job', {
         p_job_id: jobId,
+        p_device_id: this.config.deviceId,
         p_success: success,
         p_error_message: errorMessage || null,
       })
@@ -498,8 +600,8 @@ export class RealtimeManager {
         throw new Error(`API returned ${response.status}`)
       }
 
-      const result = await response.json()
-      return result.escposBase64 || result.data
+      const result = await response.json() as { escposBase64?: string; data?: string }
+      return result.escposBase64 || result.data || null
     } catch (error) {
       logger.error('Failed to fetch ESC/POS data', error)
       return null
@@ -526,7 +628,7 @@ export class RealtimeManager {
         throw new Error(`API returned ${response.status}`)
       }
 
-      const result = await response.json()
+      const result = await response.json() as { tickets?: StationTicket[] }
       return result.tickets || []
     } catch (error) {
       logger.error('Failed to fetch station tickets', error)
@@ -556,8 +658,8 @@ export class RealtimeManager {
         throw new Error(`API returned ${response.status}`)
       }
 
-      const result = await response.json()
-      return result.escposBase64 || result.data
+      const result = await response.json() as { escposBase64?: string; data?: string }
+      return result.escposBase64 || result.data || null
     } catch (error) {
       logger.error('Failed to fetch addition ESC/POS', error)
       return null
@@ -584,8 +686,8 @@ export class RealtimeManager {
         throw new Error(`API returned ${response.status}`)
       }
 
-      const result = await response.json()
-      return result.escposBase64 || result.data
+      const result = await response.json() as { escposBase64?: string; data?: string }
+      return result.escposBase64 || result.data || null
     } catch (error) {
       logger.error('Failed to fetch report ESC/POS', error)
       return null
@@ -616,6 +718,7 @@ export class RealtimeManager {
           version: process.env.npm_package_version || '1.0.0',
           uptime_seconds: uptimeSeconds,
           last_seen_at: new Date().toISOString(),
+          connection_mode: this.usePolling ? 'polling' : 'realtime',
         },
         {
           onConflict: 'device_id',
@@ -636,10 +739,11 @@ export class RealtimeManager {
   // Status
   // ============================================
 
-  getStatus(): { connected: boolean; restaurantId: string } {
+  getStatus(): { connected: boolean; restaurantId: string; mode: string } {
     return {
       connected: this.isConnected,
       restaurantId: this.config.restaurantId,
+      mode: this.usePolling ? 'polling' : 'realtime',
     }
   }
 
