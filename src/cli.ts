@@ -77,13 +77,15 @@ program
     const spinner = ora('Testing connection...').start()
     try {
       const supabase = createClient(supabaseUrl, supabaseKey)
-      const { data, error } = await supabase.from('restaurants').select('id, name').limit(1)
+      // Test connection with a simple query to menu_pro_settings
+      const { data, error } = await supabase.from('menu_pro_settings').select('id, restaurant_id').limit(1)
 
       if (error) throw error
       spinner.succeed('Connection successful!')
     } catch (error) {
       spinner.fail('Connection failed')
       console.log(chalk.red('Please check your Supabase URL and key'))
+      console.log(chalk.gray(String(error)))
       process.exit(1)
     }
 
@@ -96,13 +98,13 @@ program
     try {
       const supabase = createClient(supabaseUrl, supabaseKey)
       const { data, error } = await supabase
-        .from('restaurants')
-        .select('id, name')
-        .eq('id', restaurantId)
+        .from('menu_pro_settings')
+        .select('id, restaurant_id, restaurant_name')
+        .eq('restaurant_id', restaurantId)
         .single()
 
       if (error || !data) throw new Error('Restaurant not found')
-      spinner2.succeed(`Restaurant: ${data.name}`)
+      spinner2.succeed(`Restaurant: ${data.restaurant_name || restaurantId}`)
 
       // Generate device ID
       const deviceId = `bitsperbox-${Date.now().toString(36)}`
@@ -112,7 +114,7 @@ program
         deviceId,
         deviceToken: supabaseKey, // For now, use service key
         restaurantId,
-        restaurantName: data.name,
+        restaurantName: data.restaurant_name || restaurantId,
         supabaseUrl,
         supabaseKey,
       })
