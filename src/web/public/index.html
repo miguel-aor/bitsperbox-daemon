@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BitsperBox - Configuración</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="logo">
+        <span class="logo-icon">📦</span>
+        <h1>BitsperBox</h1>
+      </div>
+      <p class="subtitle">Hardware Bridge para BitsperFoods</p>
+    </header>
+
+    <nav class="tabs">
+      <button class="tab active" data-tab="status">Estado</button>
+      <button class="tab" data-tab="config">Configuración</button>
+      <button class="tab" data-tab="printer">Impresora</button>
+    </nav>
+
+    <!-- Status Tab -->
+    <section id="status" class="tab-content active">
+      <div class="card">
+        <h2>Estado del Sistema</h2>
+        <div class="status-grid">
+          <div class="status-item">
+            <span class="status-label">Configurado</span>
+            <span id="status-configured" class="status-value">-</span>
+          </div>
+          <div class="status-item">
+            <span class="status-label">Conexión Cloud</span>
+            <span id="status-connected" class="status-value">-</span>
+          </div>
+          <div class="status-item">
+            <span class="status-label">Modo Realtime</span>
+            <span id="status-realtime" class="status-value">-</span>
+          </div>
+          <div class="status-item">
+            <span class="status-label">Órdenes Procesadas</span>
+            <span id="status-orders" class="status-value">-</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Información del Dispositivo</h2>
+        <div class="info-list">
+          <div class="info-item">
+            <span class="info-label">ID Dispositivo</span>
+            <span id="info-device-id" class="info-value">-</span>
+          </div>
+          <div class="info-item">
+            <span class="info-label">Restaurante</span>
+            <span id="info-restaurant" class="info-value">-</span>
+          </div>
+          <div class="info-item">
+            <span class="info-label">Impresora</span>
+            <span id="info-printer" class="info-value">-</span>
+          </div>
+        </div>
+      </div>
+
+      <button id="refresh-status" class="btn btn-secondary">
+        Actualizar Estado
+      </button>
+    </section>
+
+    <!-- Config Tab -->
+    <section id="config" class="tab-content">
+      <div class="card">
+        <h2>Configuración de Conexión</h2>
+        <form id="config-form">
+          <div class="form-group">
+            <label for="deviceId">ID del Dispositivo</label>
+            <input type="text" id="deviceId" name="deviceId" required placeholder="ej: bitsperbox-001">
+          </div>
+          <div class="form-group">
+            <label for="deviceToken">Token del Dispositivo</label>
+            <input type="password" id="deviceToken" name="deviceToken" required placeholder="Token de autenticación">
+          </div>
+          <div class="form-group">
+            <label for="restaurantId">ID del Restaurante</label>
+            <input type="text" id="restaurantId" name="restaurantId" required placeholder="UUID del restaurante">
+          </div>
+          <div class="form-group">
+            <label for="restaurantName">Nombre del Restaurante (opcional)</label>
+            <input type="text" id="restaurantName" name="restaurantName" placeholder="Mi Restaurante">
+          </div>
+          <div class="form-group">
+            <label for="supabaseUrl">URL de Supabase</label>
+            <input type="url" id="supabaseUrl" name="supabaseUrl" required placeholder="https://xxx.supabase.co">
+          </div>
+          <div class="form-group">
+            <label for="supabaseKey">Supabase Key (anon)</label>
+            <input type="password" id="supabaseKey" name="supabaseKey" required placeholder="eyJhbGci...">
+          </div>
+          <div class="form-group">
+            <label for="frontendUrl">URL del Frontend</label>
+            <input type="url" id="frontendUrl" name="frontendUrl" required placeholder="https://tu-app.vercel.app">
+          </div>
+
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary">Guardar Configuración</button>
+            <button type="button" id="reset-config" class="btn btn-danger">Resetear</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="card warning">
+        <p><strong>Nota:</strong> Después de guardar la configuración, reinicia el daemon para aplicar los cambios.</p>
+        <code>sudo systemctl restart bitsperbox</code>
+      </div>
+    </section>
+
+    <!-- Printer Tab -->
+    <section id="printer" class="tab-content">
+      <div class="card">
+        <h2>Impresoras Detectadas</h2>
+        <div id="printer-list" class="printer-list">
+          <p class="loading">Buscando impresoras...</p>
+        </div>
+        <button id="scan-printers" class="btn btn-secondary">
+          Escanear Impresoras
+        </button>
+      </div>
+
+      <div class="card">
+        <h2>Prueba de Impresión</h2>
+        <p>Imprime una página de prueba para verificar la conexión.</p>
+        <button id="test-print" class="btn btn-primary">
+          Imprimir Prueba
+        </button>
+        <div id="print-result" class="result-message"></div>
+      </div>
+    </section>
+
+    <footer>
+      <p>BitsperBox v1.0.0 - BitsperFoods</p>
+    </footer>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

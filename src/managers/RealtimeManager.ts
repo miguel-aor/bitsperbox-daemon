@@ -57,11 +57,14 @@ export class RealtimeManager {
   private channels: RealtimeChannel[] = []
   private heartbeatInterval: NodeJS.Timeout | null = null
   private pollingInterval: NodeJS.Timeout | null = null
-  private isConnected: boolean = false
+  private _isConnected: boolean = false
   private startTime: Date = new Date()
   private usePolling: boolean = false
   private lastOrderCheck: Date = new Date()
   private processedOrderIds: Set<string> = new Set()
+  private ordersProcessed: number = 0
+  private lastOrderTime: Date | null = null
+  private realtimeStatus: string = 'disconnected'
 
   // Callbacks
   private onKitchenOrder: KitchenOrderCallback | null = null
@@ -128,7 +131,8 @@ export class RealtimeManager {
       // Start heartbeat
       this.startHeartbeat()
 
-      this.isConnected = true
+      this._isConnected = true
+      this.realtimeStatus = this.usePolling ? 'polling' : 'SUBSCRIBED'
       return true
     } catch (error) {
       logger.error('Failed to connect to Supabase', error)
@@ -361,7 +365,8 @@ export class RealtimeManager {
       this.pollingInterval = null
     }
 
-    this.isConnected = false
+    this._isConnected = false
+    this.realtimeStatus = 'disconnected'
     logger.info('Disconnected from Supabase')
   }
 
@@ -400,6 +405,8 @@ export class RealtimeManager {
       }
 
       await this.completePrintJob(claim.job_id!, true)
+      this.ordersProcessed++
+      this.lastOrderTime = new Date()
     } catch (error) {
       logger.error('Error printing kitchen order', error)
       await this.completePrintJob(claim.job_id!, false, String(error))
@@ -739,9 +746,25 @@ export class RealtimeManager {
   // Status
   // ============================================
 
-  getStatus(): { connected: boolean; restaurantId: string; mode: string } {
+  isConnected(): boolean {
+    return this._isConnected
+  }
+
+  getStatus(): string {
+    return this.realtimeStatus
+  }
+
+  getLastOrderTime(): Date | null {
+    return this.lastOrderTime
+  }
+
+  getOrdersProcessed(): number {
+    return this.ordersProcessed
+  }
+
+  getFullStatus(): { connected: boolean; restaurantId: string; mode: string } {
     return {
-      connected: this.isConnected,
+      connected: this._isConnected,
       restaurantId: this.config.restaurantId,
       mode: this.usePolling ? 'polling' : 'realtime',
     }

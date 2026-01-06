@@ -1,0 +1,269 @@
+import express, { Request, Response } from 'express'
+import cors from 'cors'
+import path from 'path'
+import { fileURLToPath } from 'url'
+import fs from 'fs'
+import { logger } from '../utils/logger.js'
+import {
+  getConfig,
+  saveConfig,
+  savePrinterConfig,
+  clearConfig,
+  getConfigPath,
+  isConfigured,
+} from '../utils/config.js'
+import { PrinterManager } from '../managers/PrinterManager.js'
+import type { DeviceConfig, PrinterConfig } from '../types/index.js'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
+
+// Resolve public directory - works in both dev (tsx) and prod (compiled)
+function getPublicDir(): string {
+  // Try relative to current file first (production)
+  const prodPath = path.join(__dirname, 'public')
+  if (fs.existsSync(prodPath)) return prodPath
+
+  // Try src/web/public (development with tsx)
+  const devPath = path.join(process.cwd(), 'src', 'web', 'public')
+  if (fs.existsSync(devPath)) return devPath
+
+  // Fallback
+  return prodPath
+}
+
+interface WebServerOptions {
+  port?: number
+  printerManager?: PrinterManager
+  getStatus?: () => StatusInfo
+}
+
+interface StatusInfo {
+  connected: boolean
+  realtimeStatus: string
+  lastOrderTime?: string
+  ordersProcessed: number
+}
+
+export class WebServer {
+  private app: express.Application
+  private port: number
+  private printerManager?: PrinterManager
+  private getStatus?: () => StatusInfo
+  private server?: ReturnType<typeof this.app.listen>
+
+  constructor(options: WebServerOptions = {}) {
+    this.app = express()
+    this.port = options.port || 3333
+    this.printerManager = options.printerManager
+    this.getStatus = options.getStatus
+
+    this.setupMiddleware()
+    this.setupRoutes()
+  }
+
+  private setupMiddleware() {
+    this.app.use(cors())
+    this.app.use(express.json())
+    const publicDir = getPublicDir()
+    logger.info(`Serving static files from: ${publicDir}`)
+    this.app.use(express.static(publicDir))
+  }
+
+  private setupRoutes() {
+    // API Routes
+
+    // Get current configuration status
+    this.app.get('/api/status', (_req: Request, res: Response) => {
+      const configured = isConfigured()
+      const config = getConfig()
+      const status = this.getStatus?.() || {
+        connected: false,
+        realtimeStatus: 'unknown',
+        ordersProcessed: 0,
+      }
+
+      res.json({
+        configured,
+        config: config
+          ? {
+              deviceId: config.deviceId,
+              restaurantId: config.restaurantId,
+              restaurantName: config.restaurantName,
+              frontendUrl: config.frontendUrl,
+              hasPrinter: !!config.printer,
+            }
+          : null,
+        status,
+        configPath: getConfigPath(),
+      })
+    })
+
+    // Get full config (for setup form)
+    this.app.get('/api/config', (_req: Request, res: Response) => {
+      const config = getConfig()
+      if (!config) {
+        res.json({ configured: false })
+        return
+      }
+      res.json({
+        configured: true,
+        deviceId: config.deviceId,
+        deviceToken: config.deviceToken ? '********' : '',
+        restaurantId: config.restaurantId,
+        restaurantName: config.restaurantName,
+        supabaseUrl: config.supabaseUrl,
+        supabaseKey: config.supabaseKey ? '********' : '',
+        frontendUrl: config.frontendUrl,
+        printer: config.printer,
+      })
+    })
+
+    // Save configuration
+    this.app.post('/api/config', (req: Request, res: Response) => {
+      try {
+        const {
+          deviceId,
+          deviceToken,
+          restaurantId,
+          restaurantName,
+          supabaseUrl,
+          supabaseKey,
+          frontendUrl,
+        } = req.body
+
+        if (!deviceId || !deviceToken || !restaurantId || !supabaseUrl || !supabaseKey || !frontendUrl) {
+          res.status(400).json({ error: 'Missing required fields' })
+          return
+        }
+
+        saveConfig({
+          deviceId,
+          deviceToken,
+          restaurantId,
+          restaurantName,
+          supabaseUrl,
+          supabaseKey,
+          frontendUrl,
+        })
+
+        logger.info('Configuration saved via web UI')
+        res.json({ success: true, message: 'Configuration saved. Restart daemon to apply changes.' })
+      } catch (error) {
+        logger.error('Error saving config', error)
+        res.status(500).json({ error: 'Failed to save configuration' })
+      }
+    })
+
+    // Reset configuration
+    this.app.post('/api/config/reset', (_req: Request, res: Response) => {
+      try {
+        clearConfig()
+        logger.info('Configuration reset via web UI')
+        res.json({ success: true, message: 'Configuration cleared' })
+      } catch (error) {
+        logger.error('Error resetting config', error)
+        res.status(500).json({ error: 'Failed to reset configuration' })
+      }
+    })
+
+    // Detect printers
+    this.app.get('/api/printers', async (_req: Request, res: Response) => {
+      if (!this.printerManager) {
+        res.status(503).json({ error: 'Printer manager not available' })
+        return
+      }
+
+      try {
+        const printers = await this.printerManager.detectPrinters()
+        res.json({ printers })
+      } catch (error) {
+        logger.error('Error detecting printers', error)
+        res.status(500).json({ error: 'Failed to detect printers' })
+      }
+    })
+
+    // Save printer configuration
+    this.app.post('/api/printers/config', (req: Request, res: Response) => {
+      try {
+        const printerConfig: PrinterConfig = req.body
+
+        if (!printerConfig.vendorId || !printerConfig.productId) {
+          res.status(400).json({ error: 'Missing printer vendorId or productId' })
+          return
+        }
+
+        savePrinterConfig(printerConfig)
+        logger.info('Printer configuration saved via web UI')
+        res.json({ success: true, message: 'Printer configured' })
+      } catch (error) {
+        logger.error('Error saving printer config', error)
+        res.status(500).json({ error: 'Failed to save printer configuration' })
+      }
+    })
+
+    // Test print
+    this.app.post('/api/printers/test', async (_req: Request, res: Response) => {
+      if (!this.printerManager) {
+        res.status(503).json({ error: 'Printer manager not available' })
+        return
+      }
+
+      try {
+        const success = await this.printerManager.printTestPage()
+        if (success) {
+          res.json({ success: true, message: 'Test page printed' })
+        } else {
+          res.status(500).json({ error: 'Failed to print test page' })
+        }
+      } catch (error) {
+        logger.error('Error printing test page', error)
+        res.status(500).json({ error: 'Failed to print test page' })
+      }
+    })
+
+    // Health check
+    this.app.get('/api/health', (_req: Request, res: Response) => {
+      res.json({ status: 'ok', timestamp: new Date().toISOString() })
+    })
+
+    // Serve index.html for all other routes (SPA support)
+    // Express 5 uses different wildcard syntax
+    this.app.get('/{*splat}', (_req: Request, res: Response) => {
+      res.sendFile(path.join(getPublicDir(), 'index.html'))
+    })
+  }
+
+  setPrinterManager(printerManager: PrinterManager) {
+    this.printerManager = printerManager
+  }
+
+  setStatusGetter(getStatus: () => StatusInfo) {
+    this.getStatus = getStatus
+  }
+
+  start(): Promise<void> {
+    return new Promise((resolve) => {
+      this.server = this.app.listen(this.port, '0.0.0.0', () => {
+        logger.success(`Web UI available at http://localhost:${this.port}`)
+        logger.info(`Access from network: http://<pi-ip>:${this.port}`)
+        resolve()
+      })
+    })
+  }
+
+  stop(): Promise<void> {
+    return new Promise((resolve) => {
+      if (this.server) {
+        this.server.close(() => {
+          logger.info('Web server stopped')
+          resolve()
+        })
+      } else {
+        resolve()
+      }
+    })
+  }
+}
+
+export default WebServer

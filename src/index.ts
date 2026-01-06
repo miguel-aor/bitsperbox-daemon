@@ -5,8 +5,10 @@ import { getConfig, isConfigured } from './utils/config.js'
 import { PrinterManager } from './managers/PrinterManager.js'
 import { RealtimeManager } from './managers/RealtimeManager.js'
 import { PrintService } from './services/PrintService.js'
+import { WebServer } from './web/server.js'
 
 const VERSION = '1.0.0'
+const WEB_PORT = parseInt(process.env.WEB_PORT || '3333')
 
 async function main() {
   // Display banner
@@ -17,11 +19,30 @@ async function main() {
   ])
   console.log('')
 
+  // Initialize Printer Manager early (needed for web UI)
+  const printerManager = new PrinterManager()
+
+  // Start Web UI (always available for configuration)
+  const webServer = new WebServer({ port: WEB_PORT, printerManager })
+  await webServer.start()
+
   // Check configuration
   if (!isConfigured()) {
-    logger.error('BitsperBox is not configured!')
-    logger.info('Run: npm run setup')
-    process.exit(1)
+    logger.warn('BitsperBox is not configured!')
+    logger.info(`Open http://localhost:${WEB_PORT} to configure`)
+    logger.info('Or run: npm run setup')
+
+    // Keep running for web configuration
+    process.on('SIGINT', async () => {
+      await webServer.stop()
+      process.exit(0)
+    })
+    process.on('SIGTERM', async () => {
+      await webServer.stop()
+      process.exit(0)
+    })
+    process.stdin.resume()
+    return
   }
 
   const config = getConfig()
@@ -34,9 +55,10 @@ async function main() {
   logger.info(`Device ID: ${config.deviceId}`)
   logger.info(`Frontend: ${config.frontendUrl}`)
 
-  // Initialize Printer Manager
-  logger.info('Initializing printer...')
-  const printerManager = new PrinterManager(config.printer)
+  // Configure Printer Manager with saved config
+  if (config.printer) {
+    printerManager.setConfig(config.printer)
+  }
 
   // Detect printers
   const printers = await printerManager.detectPrinters()
@@ -95,6 +117,14 @@ async function main() {
     process.exit(1)
   }
 
+  // Set up status getter for web UI
+  webServer.setStatusGetter(() => ({
+    connected: realtimeManager.isConnected(),
+    realtimeStatus: realtimeManager.getStatus(),
+    lastOrderTime: realtimeManager.getLastOrderTime()?.toISOString(),
+    ordersProcessed: realtimeManager.getOrdersProcessed(),
+  }))
+
   logger.success('BitsperBox is running!')
   logger.info('Listening for:')
   logger.info('  - New orders (kitchen tickets)')
@@ -108,6 +138,7 @@ async function main() {
     console.log('')
     logger.info(`Received ${signal}, shutting down...`)
     await realtimeManager.disconnect()
+    await webServer.stop()
     logger.info('Goodbye!')
     process.exit(0)
   }
