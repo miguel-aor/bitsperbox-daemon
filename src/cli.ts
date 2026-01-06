@@ -98,9 +98,9 @@ program
     try {
       const supabase = createClient(supabaseUrl, supabaseKey)
       const { data, error } = await supabase
-        .from('menu_pro_settings')
-        .select('id, restaurant_id, restaurant_name')
-        .eq('restaurant_id', restaurantId)
+        .from('restaurant_profiles')
+        .select('id, restaurant_name')
+        .eq('id', restaurantId)
         .single()
 
       if (error || !data) throw new Error('Restaurant not found')
