@@ -1,0 +1,48 @@
+{
+  "name": "bitsperbox-daemon",
+  "version": "1.0.0",
+  "description": "BitsperBox - Hardware bridge daemon for BitsperFoods restaurants",
+  "main": "dist/index.js",
+  "bin": {
+    "bitsperbox": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx watch src/index.ts",
+    "setup": "tsx src/cli.ts setup",
+    "status": "tsx src/cli.ts status",
+    "test:print": "tsx src/cli.ts test-print",
+    "test:connection": "tsx src/cli.ts test-connection",
+    "logs": "journalctl -u bitsperbox -f",
+    "install:service": "sudo cp systemd/bitsperbox.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable bitsperbox",
+    "uninstall:service": "sudo systemctl stop bitsperbox && sudo systemctl disable bitsperbox && sudo rm /etc/systemd/system/bitsperbox.service"
+  },
+  "keywords": [
+    "raspberry-pi",
+    "thermal-printer",
+    "pos",
+    "restaurant",
+    "iot",
+    "bitsperfoods"
+  ],
+  "author": "BitsperFoods",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.47.0",
+    "chalk": "^5.3.0",
+    "commander": "^12.1.0",
+    "conf": "^13.0.1",
+    "dotenv": "^16.4.5",
+    "ora": "^8.0.1",
+    "usb": "^2.13.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

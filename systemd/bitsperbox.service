@@ -1,0 +1,30 @@
+[Unit]
+Description=BitsperBox Daemon - Hardware bridge for BitsperFoods
+Documentation=https://github.com/miguel-aor/bitsperbox-daemon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+WorkingDirectory=/home/pi/bitsperbox-daemon
+ExecStart=/usr/bin/node /home/pi/bitsperbox-daemon/dist/index.js
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=bitsperbox
+
+# Environment
+Environment=NODE_ENV=production
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+
+# USB access for printing
+SupplementaryGroups=lp dialout plugdev
+
+[Install]
+WantedBy=multi-user.target
