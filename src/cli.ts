@@ -68,8 +68,19 @@ program
       process.exit(1)
     }
 
-    // Step 2: Device Token (or Service Key for now)
-    console.log(chalk.blue('\n🔑 Step 2: Authentication\n'))
+    // Step 2: Frontend URL
+    console.log(chalk.blue('\n🌐 Step 2: Frontend URL\n'))
+    console.log(chalk.gray('La URL donde corre tu frontend de BitsperFoods'))
+    console.log(chalk.gray('- Desarrollo: http://192.168.X.X:3000 (IP de tu Mac/PC)'))
+    console.log(chalk.gray('- Producción: https://app.bitsperfoods.com'))
+    const frontendUrl = await prompt('Frontend URL: ')
+    if (!frontendUrl.startsWith('http')) {
+      console.log(chalk.red('Invalid URL - must start with http:// or https://'))
+      process.exit(1)
+    }
+
+    // Step 3: Device Token (or Service Key for now)
+    console.log(chalk.blue('\n🔑 Step 3: Authentication\n'))
     console.log(chalk.gray('Get your device token from: Dashboard > Settings > BitsperBox'))
     const supabaseKey = await prompt('Supabase Service Key or Device Token: ')
 
@@ -89,8 +100,8 @@ program
       process.exit(1)
     }
 
-    // Step 3: Restaurant ID
-    console.log(chalk.blue('\n🍽️  Step 3: Restaurant\n'))
+    // Step 4: Restaurant ID
+    console.log(chalk.blue('\n🍽️  Step 4: Restaurant\n'))
     const restaurantId = await prompt('Restaurant ID: ')
 
     // Validate restaurant
@@ -117,9 +128,10 @@ program
         restaurantName: data.restaurant_name || restaurantId,
         supabaseUrl,
         supabaseKey,
+        frontendUrl,
       })
 
-      console.log(chalk.blue('\n🖨️  Step 4: Printer Setup\n'))
+      console.log(chalk.blue('\n🖨️  Step 5: Printer Setup\n'))
       const setupPrinter = await confirm('Would you like to configure a printer now?')
 
       if (setupPrinter) {

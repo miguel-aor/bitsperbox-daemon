@@ -9,6 +9,7 @@ export interface DeviceConfig {
   restaurantName?: string
   supabaseUrl: string
   supabaseKey: string
+  frontendUrl: string // URL del frontend para APIs de tickets (ej: https://app.bitsperfoods.com)
   printer?: PrinterConfig
 }
 

@@ -32,6 +32,7 @@ async function main() {
 
   logger.info(`Restaurant: ${config.restaurantName || config.restaurantId}`)
   logger.info(`Device ID: ${config.deviceId}`)
+  logger.info(`Frontend: ${config.frontendUrl}`)
 
   // Initialize Printer Manager
   logger.info('Initializing printer...')
@@ -59,20 +60,32 @@ async function main() {
     }
   }
 
+  // Initialize Print Service
+  const printService = new PrintService(config, printerManager)
+
   // Initialize Realtime Manager
   logger.info('Connecting to BitsperFoods cloud...')
   const realtimeManager = new RealtimeManager(config)
 
-  // Initialize Print Service
-  const printService = new PrintService(config, printerManager, realtimeManager)
-
-  // Set up callbacks
-  realtimeManager.setOrderCallback(async order => {
-    await printService.handleNewOrder(order)
+  // Set up callbacks for all event types
+  realtimeManager.setKitchenOrderCallback(async (order, escposData) => {
+    await printService.printKitchenOrder(order, escposData)
   })
 
-  realtimeManager.setPrintJobCallback(async job => {
-    await printService.handlePrintJob(job)
+  realtimeManager.setStationTicketsCallback(async (orderId, tickets) => {
+    await printService.printStationTickets(orderId, tickets)
+  })
+
+  realtimeManager.setAdditionCallback(async (order, additionGroupId, escposData) => {
+    await printService.printAddition(order, additionGroupId, escposData)
+  })
+
+  realtimeManager.setCustomerTicketCallback(async (ticketId, orderId, escposData) => {
+    await printService.printCustomerTicket(ticketId, orderId, escposData)
+  })
+
+  realtimeManager.setCashReportCallback(async (reportId, reportType, escposData) => {
+    await printService.printCashReport(reportId, reportType, escposData)
   })
 
   // Connect to Realtime
@@ -83,7 +96,11 @@ async function main() {
   }
 
   logger.success('BitsperBox is running!')
-  logger.info('Waiting for orders...')
+  logger.info('Listening for:')
+  logger.info('  - New orders (kitchen tickets)')
+  logger.info('  - Order additions')
+  logger.info('  - Customer tickets')
+  logger.info('  - Cash reports (X/Z)')
   console.log('')
 
   // Handle graceful shutdown

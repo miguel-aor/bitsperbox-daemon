@@ -8,6 +8,7 @@ interface StoredConfig {
   restaurantName?: string
   supabaseUrl?: string
   supabaseKey?: string
+  frontendUrl?: string
   printer?: PrinterConfig
   setupCompleted?: boolean
   lastHeartbeat?: string
@@ -34,8 +35,9 @@ export function getConfig(): DeviceConfig | null {
   const restaurantId = config.get('restaurantId')
   const supabaseUrl = config.get('supabaseUrl')
   const supabaseKey = config.get('supabaseKey')
+  const frontendUrl = config.get('frontendUrl')
 
-  if (!deviceId || !deviceToken || !restaurantId || !supabaseUrl || !supabaseKey) {
+  if (!deviceId || !deviceToken || !restaurantId || !supabaseUrl || !supabaseKey || !frontendUrl) {
     return null
   }
 
@@ -46,6 +48,7 @@ export function getConfig(): DeviceConfig | null {
     restaurantName: config.get('restaurantName'),
     supabaseUrl,
     supabaseKey,
+    frontendUrl,
     printer: config.get('printer'),
   }
 }
@@ -57,6 +60,7 @@ export function saveConfig(deviceConfig: Partial<DeviceConfig>) {
   if (deviceConfig.restaurantName) config.set('restaurantName', deviceConfig.restaurantName)
   if (deviceConfig.supabaseUrl) config.set('supabaseUrl', deviceConfig.supabaseUrl)
   if (deviceConfig.supabaseKey) config.set('supabaseKey', deviceConfig.supabaseKey)
+  if (deviceConfig.frontendUrl) config.set('frontendUrl', deviceConfig.frontendUrl)
   if (deviceConfig.printer) config.set('printer', deviceConfig.printer)
   config.set('setupCompleted', true)
 }
