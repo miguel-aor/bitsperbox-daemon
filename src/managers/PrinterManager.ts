@@ -313,27 +313,28 @@ export class PrinterManager {
   }
 
   /**
-   * Print a test page
+   * Print a test page (simplified for maximum compatibility)
    */
   async printTestPage(): Promise<boolean> {
-    // ESC/POS commands for a simple test page
-    const testPage = Buffer.from([
-      0x1b, 0x40, // Initialize printer
-      0x1b, 0x61, 0x01, // Center align
-      0x1d, 0x21, 0x11, // Double width & height
-      ...Buffer.from('BitsperBox\n'),
-      0x1d, 0x21, 0x00, // Normal size
-      ...Buffer.from('────────────────────\n'),
-      0x1b, 0x61, 0x00, // Left align
-      ...Buffer.from('Printer Test Page\n'),
-      ...Buffer.from(`Date: ${new Date().toLocaleString()}\n`),
-      ...Buffer.from('────────────────────\n'),
-      ...Buffer.from('If you can read this,\n'),
-      ...Buffer.from('the printer is working!\n'),
-      ...Buffer.from('────────────────────\n\n\n'),
-      0x1d, 0x56, 0x00, // Cut paper
-    ])
+    // Simple ESC/POS commands - compatible with most thermal printers
+    const commands = [
+      '\x1B\x40',           // ESC @ - Initialize printer
+      '\x1B\x61\x01',       // ESC a 1 - Center align
+      '\n',
+      '*** BITSPERBOX ***\n',
+      '===================\n',
+      '\x1B\x61\x00',       // ESC a 0 - Left align
+      'Printer Test Page\n',
+      `Date: ${new Date().toLocaleString()}\n`,
+      '-------------------\n',
+      'If you can read this,\n',
+      'the printer is working!\n',
+      '===================\n',
+      '\n\n\n',
+      '\x1D\x56\x41\x03',   // GS V A 3 - Partial cut (with feed)
+    ].join('')
 
+    const testPage = Buffer.from(commands, 'binary')
     return this.print(testPage)
   }
 
