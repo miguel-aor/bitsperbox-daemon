@@ -119,13 +119,66 @@
     <!-- Printer Tab -->
     <section id="printer" class="tab-content">
       <div class="card">
-        <h2>Impresoras Detectadas</h2>
-        <div id="printer-list" class="printer-list">
-          <p class="loading">Buscando impresoras...</p>
+        <h2>Tipo de Conexión</h2>
+        <div class="printer-tabs">
+          <button class="printer-tab active" data-printer-tab="usb">🔌 USB</button>
+          <button class="printer-tab" data-printer-tab="network">🌐 Red (IP)</button>
+          <button class="printer-tab" data-printer-tab="bluetooth">📶 Bluetooth</button>
         </div>
-        <button id="scan-printers" class="btn btn-secondary">
-          Escanear Impresoras
-        </button>
+
+        <!-- USB Printers -->
+        <div id="usb-section" class="printer-section active">
+          <h3>Impresoras USB Detectadas</h3>
+          <div id="printer-list" class="printer-list">
+            <p class="loading">Buscando impresoras...</p>
+          </div>
+          <button id="scan-printers" class="btn btn-secondary">
+            Escanear USB
+          </button>
+        </div>
+
+        <!-- Network Printers -->
+        <div id="network-section" class="printer-section">
+          <h3>Impresora de Red</h3>
+          <p class="section-desc">Conecta a una impresora térmica vía TCP/IP (puerto 9100)</p>
+          <div class="form-group">
+            <label for="network-ip">Dirección IP</label>
+            <input type="text" id="network-ip" placeholder="192.168.1.100">
+          </div>
+          <div class="form-group">
+            <label for="network-port">Puerto</label>
+            <input type="number" id="network-port" value="9100" placeholder="9100">
+          </div>
+          <div class="form-actions-inline">
+            <button id="test-network" class="btn btn-secondary">
+              Probar Conexión
+            </button>
+            <span id="network-status" class="connection-status"></span>
+          </div>
+          <button id="save-network" class="btn btn-primary" style="margin-top: 12px; width: 100%;">
+            Guardar Impresora de Red
+          </button>
+        </div>
+
+        <!-- Bluetooth Printers -->
+        <div id="bluetooth-section" class="printer-section">
+          <h3>Impresoras Bluetooth</h3>
+          <p class="section-desc">Escanea y conecta impresoras Bluetooth cercanas</p>
+          <div id="bluetooth-list" class="printer-list">
+            <p class="no-printers">No hay dispositivos pareados</p>
+          </div>
+          <div class="form-actions-inline">
+            <button id="scan-bluetooth" class="btn btn-secondary">
+              Escanear Bluetooth
+            </button>
+            <button id="load-bluetooth" class="btn btn-secondary">
+              Ver Pareados
+            </button>
+          </div>
+          <div id="bluetooth-scanning" class="scanning-indicator" style="display: none;">
+            <span class="spinner"></span> Escaneando dispositivos...
+          </div>
+        </div>
       </div>
 
       <div class="card">

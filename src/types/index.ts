@@ -14,13 +14,23 @@ export interface DeviceConfig {
 }
 
 export interface PrinterConfig {
-  type: 'usb' | 'network'
+  type: 'usb' | 'network' | 'bluetooth'
   // USB printer
   vendorId?: number
   productId?: number
   // Network printer
   ip?: string
   port?: number
+  // Bluetooth printer
+  bluetoothAddress?: string  // MAC address like "00:11:22:33:44:55"
+  bluetoothName?: string     // Human-readable name
+}
+
+export interface BluetoothDevice {
+  address: string
+  name: string
+  paired: boolean
+  connected?: boolean
 }
 
 // ============================================

@@ -4,6 +4,7 @@ const API_BASE = '/api';
 
 // State
 let selectedPrinter = null;
+let currentPrinterType = 'usb';
 
 // DOM Elements
 const tabs = document.querySelectorAll('.tab');
@@ -24,6 +25,27 @@ tabs.forEach(tab => {
     if (tabId === 'status') loadStatus();
     if (tabId === 'printer') loadPrinters();
     if (tabId === 'config') loadConfig();
+  });
+});
+
+// Printer Type Tabs
+const printerTabs = document.querySelectorAll('.printer-tab');
+const printerSections = document.querySelectorAll('.printer-section');
+
+printerTabs.forEach(tab => {
+  tab.addEventListener('click', () => {
+    const printerTabId = tab.dataset.printerTab;
+    currentPrinterType = printerTabId;
+
+    printerTabs.forEach(t => t.classList.remove('active'));
+    printerSections.forEach(s => s.classList.remove('active'));
+
+    tab.classList.add('active');
+    document.getElementById(`${printerTabId}-section`).classList.add('active');
+
+    // Load data for printer type
+    if (printerTabId === 'usb') loadPrinters();
+    if (printerTabId === 'bluetooth') loadBluetoothDevices();
   });
 });
 
@@ -197,10 +219,10 @@ async function loadPrinters() {
   }
 }
 
-// Select Printer
+// Select USB Printer
 async function selectPrinter(item) {
   // Remove previous selection
-  document.querySelectorAll('.printer-item').forEach(i => {
+  document.querySelectorAll('#printer-list .printer-item').forEach(i => {
     i.classList.remove('selected');
     i.querySelector('.printer-check').textContent = '';
   });
@@ -209,9 +231,10 @@ async function selectPrinter(item) {
   item.classList.add('selected');
   item.querySelector('.printer-check').textContent = '✓';
 
-  selectedPrinter = {
-    vendorId: item.dataset.vendor,
-    productId: item.dataset.product,
+  const printerConfig = {
+    type: 'usb',
+    vendorId: parseInt(item.dataset.vendor),
+    productId: parseInt(item.dataset.product),
     devicePath: item.dataset.path,
   };
 
@@ -219,9 +242,9 @@ async function selectPrinter(item) {
   try {
     await api('/printers/config', {
       method: 'POST',
-      body: JSON.stringify(selectedPrinter),
+      body: JSON.stringify(printerConfig),
     });
-    showToast('Impresora seleccionada', 'success');
+    showToast('Impresora USB seleccionada', 'success');
   } catch (error) {
     showToast('Error guardando impresora', 'error');
   }
@@ -229,6 +252,210 @@ async function selectPrinter(item) {
 
 // Scan Printers
 document.getElementById('scan-printers').addEventListener('click', loadPrinters);
+
+// ============================================
+// Network Printer Functions
+// ============================================
+
+// Test Network Connection
+document.getElementById('test-network').addEventListener('click', async () => {
+  const ip = document.getElementById('network-ip').value.trim();
+  const port = document.getElementById('network-port').value || '9100';
+  const statusEl = document.getElementById('network-status');
+
+  if (!ip) {
+    showToast('Ingresa la dirección IP', 'error');
+    return;
+  }
+
+  statusEl.textContent = 'Probando...';
+  statusEl.className = 'connection-status testing';
+
+  try {
+    const result = await api('/printers/network/test', {
+      method: 'POST',
+      body: JSON.stringify({ ip, port: parseInt(port) }),
+    });
+
+    if (result.success) {
+      statusEl.textContent = '✓ Conectado';
+      statusEl.className = 'connection-status success';
+    } else {
+      statusEl.textContent = '✗ Sin conexión';
+      statusEl.className = 'connection-status error';
+    }
+  } catch (error) {
+    statusEl.textContent = '✗ Error';
+    statusEl.className = 'connection-status error';
+  }
+});
+
+// Save Network Printer
+document.getElementById('save-network').addEventListener('click', async () => {
+  const ip = document.getElementById('network-ip').value.trim();
+  const port = document.getElementById('network-port').value || '9100';
+
+  if (!ip) {
+    showToast('Ingresa la dirección IP', 'error');
+    return;
+  }
+
+  const printerConfig = {
+    type: 'network',
+    ip,
+    port: parseInt(port),
+  };
+
+  try {
+    await api('/printers/config', {
+      method: 'POST',
+      body: JSON.stringify(printerConfig),
+    });
+    showToast('Impresora de red guardada', 'success');
+  } catch (error) {
+    showToast('Error guardando impresora', 'error');
+  }
+});
+
+// ============================================
+// Bluetooth Printer Functions
+// ============================================
+
+// Load paired Bluetooth devices
+async function loadBluetoothDevices() {
+  const listEl = document.getElementById('bluetooth-list');
+  listEl.innerHTML = '<p class="loading">Cargando dispositivos...</p>';
+
+  try {
+    const data = await api('/bluetooth/devices');
+
+    if (!data.devices || data.devices.length === 0) {
+      listEl.innerHTML = '<p class="no-printers">No hay dispositivos pareados</p>';
+      return;
+    }
+
+    listEl.innerHTML = data.devices.map(device => `
+      <div class="printer-item bluetooth-device" data-address="${device.address}" data-name="${device.name}">
+        <div class="printer-info">
+          <span class="printer-name">${device.name || 'Dispositivo Bluetooth'}</span>
+          <span class="printer-path">${device.address}</span>
+        </div>
+        <div class="printer-check"></div>
+      </div>
+    `).join('');
+
+    // Add click handlers
+    document.querySelectorAll('.bluetooth-device').forEach(item => {
+      item.addEventListener('click', () => selectBluetoothDevice(item));
+    });
+  } catch (error) {
+    listEl.innerHTML = '<p class="no-printers">Error cargando dispositivos</p>';
+  }
+}
+
+// Select Bluetooth device and save config
+async function selectBluetoothDevice(item) {
+  // Remove previous selection
+  document.querySelectorAll('#bluetooth-list .printer-item').forEach(i => {
+    i.classList.remove('selected');
+    i.querySelector('.printer-check').textContent = '';
+  });
+
+  // Select this one
+  item.classList.add('selected');
+  item.querySelector('.printer-check').textContent = '✓';
+
+  const printerConfig = {
+    type: 'bluetooth',
+    bluetoothAddress: item.dataset.address,
+    bluetoothName: item.dataset.name,
+  };
+
+  // Save printer config
+  try {
+    await api('/printers/config', {
+      method: 'POST',
+      body: JSON.stringify(printerConfig),
+    });
+    showToast('Impresora Bluetooth guardada', 'success');
+  } catch (error) {
+    showToast('Error guardando impresora', 'error');
+  }
+}
+
+// Scan for new Bluetooth devices
+document.getElementById('scan-bluetooth').addEventListener('click', async () => {
+  const listEl = document.getElementById('bluetooth-list');
+  const scanningEl = document.getElementById('bluetooth-scanning');
+  const btn = document.getElementById('scan-bluetooth');
+
+  btn.disabled = true;
+  scanningEl.style.display = 'flex';
+
+  try {
+    const data = await api('/bluetooth/scan');
+
+    if (!data.devices || data.devices.length === 0) {
+      listEl.innerHTML = '<p class="no-printers">No se encontraron dispositivos</p>';
+    } else {
+      listEl.innerHTML = data.devices.map(device => `
+        <div class="printer-item bluetooth-device ${device.paired ? '' : 'unpaired'}"
+             data-address="${device.address}"
+             data-name="${device.name}"
+             data-paired="${device.paired}">
+          <div class="printer-info">
+            <span class="printer-name">${device.name || 'Dispositivo'}</span>
+            <span class="printer-path">${device.address} ${device.paired ? '(pareado)' : '(nuevo)'}</span>
+          </div>
+          <div class="printer-check">${device.paired ? '' : '+'}</div>
+        </div>
+      `).join('');
+
+      // Add click handlers
+      document.querySelectorAll('.bluetooth-device').forEach(item => {
+        item.addEventListener('click', () => {
+          if (item.dataset.paired === 'true') {
+            selectBluetoothDevice(item);
+          } else {
+            pairBluetoothDevice(item.dataset.address, item.dataset.name);
+          }
+        });
+      });
+    }
+
+    showToast('Escaneo completado', 'success');
+  } catch (error) {
+    showToast('Error escaneando Bluetooth', 'error');
+  } finally {
+    btn.disabled = false;
+    scanningEl.style.display = 'none';
+  }
+});
+
+// Load paired devices button
+document.getElementById('load-bluetooth').addEventListener('click', loadBluetoothDevices);
+
+// Pair with a Bluetooth device
+async function pairBluetoothDevice(address, name) {
+  showToast(`Pareando con ${name || address}...`, 'info');
+
+  try {
+    const result = await api('/bluetooth/pair', {
+      method: 'POST',
+      body: JSON.stringify({ address }),
+    });
+
+    if (result.success) {
+      showToast('Dispositivo pareado correctamente', 'success');
+      // Reload the list
+      loadBluetoothDevices();
+    } else {
+      showToast(result.error || 'Error al parear', 'error');
+    }
+  } catch (error) {
+    showToast('Error al parear dispositivo', 'error');
+  }
+}
 
 // Test Print
 document.getElementById('test-print').addEventListener('click', async () => {

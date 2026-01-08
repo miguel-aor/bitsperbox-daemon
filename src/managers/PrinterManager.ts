@@ -1,8 +1,12 @@
 import { usb, WebUSB, findBySerialNumber } from 'usb'
 import { logger } from '../utils/logger.js'
-import type { PrinterConfig } from '../types/index.js'
+import type { PrinterConfig, BluetoothDevice } from '../types/index.js'
 import * as fs from 'fs'
 import * as net from 'net'
+import { exec } from 'child_process'
+import { promisify } from 'util'
+
+const execAsync = promisify(exec)
 
 // Common thermal printer vendor IDs
 const KNOWN_PRINTER_VENDORS = [
@@ -159,6 +163,8 @@ export class PrinterManager {
         return await this.testUsbConnection()
       } else if (this.config.type === 'network') {
         return await this.testNetworkConnection()
+      } else if (this.config.type === 'bluetooth') {
+        return await this.testBluetoothConnection()
       }
       return false
     } catch (error) {
@@ -236,6 +242,8 @@ export class PrinterManager {
         return await this.printUsb(data)
       } else if (this.config.type === 'network') {
         return await this.printNetwork(data)
+      } else if (this.config.type === 'bluetooth') {
+        return await this.printBluetooth(data)
       }
       return false
     } catch (error) {
@@ -336,6 +344,217 @@ export class PrinterManager {
 
     const testPage = Buffer.from(commands, 'binary')
     return this.print(testPage)
+  }
+
+  // ============================================
+  // Bluetooth Methods
+  // ============================================
+
+  /**
+   * Scan for Bluetooth devices (paired and nearby)
+   */
+  async scanBluetoothDevices(): Promise<BluetoothDevice[]> {
+    const devices: BluetoothDevice[] = []
+
+    try {
+      // Get paired devices
+      const { stdout: pairedOutput } = await execAsync('bluetoothctl devices Paired 2>/dev/null || bluetoothctl devices 2>/dev/null')
+      const lines = pairedOutput.trim().split('\n').filter(line => line.startsWith('Device'))
+
+      for (const line of lines) {
+        // Format: "Device XX:XX:XX:XX:XX:XX Device Name"
+        const match = line.match(/Device ([0-9A-Fa-f:]{17}) (.+)/)
+        if (match) {
+          devices.push({
+            address: match[1],
+            name: match[2],
+            paired: true,
+          })
+        }
+      }
+    } catch (error) {
+      logger.error('Error scanning Bluetooth devices', error)
+    }
+
+    return devices
+  }
+
+  /**
+   * Start Bluetooth discovery scan
+   */
+  async startBluetoothScan(): Promise<BluetoothDevice[]> {
+    try {
+      // Start scanning for 5 seconds
+      await execAsync('timeout 5 bluetoothctl scan on 2>/dev/null || true')
+
+      // Get all discovered devices
+      const { stdout } = await execAsync('bluetoothctl devices 2>/dev/null')
+      const devices: BluetoothDevice[] = []
+      const lines = stdout.trim().split('\n').filter(line => line.startsWith('Device'))
+
+      for (const line of lines) {
+        const match = line.match(/Device ([0-9A-Fa-f:]{17}) (.+)/)
+        if (match) {
+          // Check if paired
+          let paired = false
+          try {
+            const { stdout: infoOutput } = await execAsync(`bluetoothctl info ${match[1]} 2>/dev/null`)
+            paired = infoOutput.includes('Paired: yes')
+          } catch {
+            // Device info not available
+          }
+
+          devices.push({
+            address: match[1],
+            name: match[2],
+            paired,
+          })
+        }
+      }
+
+      return devices
+    } catch (error) {
+      logger.error('Error during Bluetooth scan', error)
+      return []
+    }
+  }
+
+  /**
+   * Pair with a Bluetooth device
+   */
+  async pairBluetoothDevice(address: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      // Trust the device first
+      await execAsync(`bluetoothctl trust ${address}`)
+
+      // Attempt to pair
+      const { stdout, stderr } = await execAsync(`bluetoothctl pair ${address}`)
+
+      if (stderr && stderr.includes('Failed')) {
+        return { success: false, error: stderr }
+      }
+
+      // Bind rfcomm (create serial port)
+      try {
+        await execAsync(`sudo rfcomm bind 0 ${address} 1 2>/dev/null || rfcomm bind 0 ${address} 1 2>/dev/null`)
+      } catch {
+        // rfcomm might already be bound or not available
+        logger.warn('Could not bind rfcomm - may need manual setup')
+      }
+
+      logger.success(`Paired with Bluetooth device: ${address}`)
+      return { success: true }
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error)
+      logger.error('Failed to pair Bluetooth device', error)
+      return { success: false, error: errorMsg }
+    }
+  }
+
+  /**
+   * Test Bluetooth connection
+   */
+  private async testBluetoothConnection(): Promise<boolean> {
+    if (!this.config?.bluetoothAddress) {
+      return false
+    }
+
+    try {
+      // Check if rfcomm device exists
+      const rfcommPath = '/dev/rfcomm0'
+      if (fs.existsSync(rfcommPath)) {
+        this.devicePath = rfcommPath
+        this.isConnected = true
+        logger.info(`Bluetooth printer ready at ${rfcommPath}`)
+        return true
+      }
+
+      // Try to bind rfcomm
+      try {
+        await execAsync(`sudo rfcomm bind 0 ${this.config.bluetoothAddress} 1 2>/dev/null || rfcomm bind 0 ${this.config.bluetoothAddress} 1 2>/dev/null`)
+        if (fs.existsSync(rfcommPath)) {
+          this.devicePath = rfcommPath
+          this.isConnected = true
+          logger.info(`Bluetooth printer bound at ${rfcommPath}`)
+          return true
+        }
+      } catch {
+        // rfcomm bind failed
+      }
+
+      // Check if device is connected via bluetoothctl
+      const { stdout } = await execAsync(`bluetoothctl info ${this.config.bluetoothAddress} 2>/dev/null`)
+      if (stdout.includes('Connected: yes')) {
+        logger.info('Bluetooth device is connected')
+        this.isConnected = true
+        return true
+      }
+
+      return false
+    } catch (error) {
+      logger.error('Bluetooth connection test failed', error)
+      return false
+    }
+  }
+
+  /**
+   * Print via Bluetooth (rfcomm serial port)
+   */
+  private async printBluetooth(data: Buffer): Promise<boolean> {
+    // Try rfcomm device first
+    const rfcommPath = '/dev/rfcomm0'
+
+    if (fs.existsSync(rfcommPath)) {
+      try {
+        fs.writeFileSync(rfcommPath, data)
+        logger.print(`Printed ${data.length} bytes to ${rfcommPath}`)
+        return true
+      } catch (error) {
+        logger.error(`Failed to write to ${rfcommPath}`, error)
+      }
+    }
+
+    // Try to bind and print
+    if (this.config?.bluetoothAddress) {
+      try {
+        await execAsync(`sudo rfcomm bind 0 ${this.config.bluetoothAddress} 1 2>/dev/null || true`)
+        if (fs.existsSync(rfcommPath)) {
+          fs.writeFileSync(rfcommPath, data)
+          logger.print(`Printed ${data.length} bytes to ${rfcommPath}`)
+          return true
+        }
+      } catch (error) {
+        logger.error('Failed to bind rfcomm for printing', error)
+      }
+    }
+
+    logger.error('No Bluetooth printer device found')
+    return false
+  }
+
+  /**
+   * Test network connection with specific IP and port (for web UI)
+   */
+  async testNetworkPrinter(ip: string, port: number): Promise<boolean> {
+    return new Promise(resolve => {
+      const socket = new net.Socket()
+      const timeout = setTimeout(() => {
+        socket.destroy()
+        resolve(false)
+      }, 3000)
+
+      socket.connect(port, ip, () => {
+        clearTimeout(timeout)
+        socket.destroy()
+        logger.info(`Network printer reachable at ${ip}:${port}`)
+        resolve(true)
+      })
+
+      socket.on('error', () => {
+        clearTimeout(timeout)
+        resolve(false)
+      })
+    })
   }
 
   getStatus(): { connected: boolean; devicePath: string | null; config: PrinterConfig | null } {

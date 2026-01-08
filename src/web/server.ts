@@ -183,22 +183,130 @@ export class WebServer {
       }
     })
 
-    // Save printer configuration
+    // Save printer configuration (supports USB, Network, Bluetooth)
     this.app.post('/api/printers/config', (req: Request, res: Response) => {
       try {
         const printerConfig: PrinterConfig = req.body
 
-        if (!printerConfig.vendorId || !printerConfig.productId) {
-          res.status(400).json({ error: 'Missing printer vendorId or productId' })
+        // Validate based on type
+        if (!printerConfig.type) {
+          res.status(400).json({ error: 'Missing printer type' })
+          return
+        }
+
+        if (printerConfig.type === 'usb' && !printerConfig.vendorId) {
+          res.status(400).json({ error: 'Missing USB printer vendorId' })
+          return
+        }
+
+        if (printerConfig.type === 'network' && (!printerConfig.ip || !printerConfig.port)) {
+          res.status(400).json({ error: 'Missing network printer IP or port' })
+          return
+        }
+
+        if (printerConfig.type === 'bluetooth' && !printerConfig.bluetoothAddress) {
+          res.status(400).json({ error: 'Missing Bluetooth address' })
           return
         }
 
         savePrinterConfig(printerConfig)
-        logger.info('Printer configuration saved via web UI')
+
+        // Update printer manager with new config
+        if (this.printerManager) {
+          this.printerManager.setConfig(printerConfig)
+        }
+
+        logger.info(`Printer configuration saved: ${printerConfig.type}`)
         res.json({ success: true, message: 'Printer configured' })
       } catch (error) {
         logger.error('Error saving printer config', error)
         res.status(500).json({ error: 'Failed to save printer configuration' })
+      }
+    })
+
+    // Test network printer connection
+    this.app.post('/api/printers/network/test', async (req: Request, res: Response) => {
+      if (!this.printerManager) {
+        res.status(503).json({ error: 'Printer manager not available' })
+        return
+      }
+
+      try {
+        const { ip, port } = req.body
+
+        if (!ip || !port) {
+          res.status(400).json({ error: 'Missing IP or port' })
+          return
+        }
+
+        const success = await this.printerManager.testNetworkPrinter(ip, parseInt(port))
+        res.json({ success, message: success ? 'Connection successful' : 'Connection failed' })
+      } catch (error) {
+        logger.error('Error testing network printer', error)
+        res.status(500).json({ error: 'Failed to test network connection' })
+      }
+    })
+
+    // ============================================
+    // Bluetooth API Endpoints
+    // ============================================
+
+    // Get paired Bluetooth devices
+    this.app.get('/api/bluetooth/devices', async (_req: Request, res: Response) => {
+      if (!this.printerManager) {
+        res.status(503).json({ error: 'Printer manager not available' })
+        return
+      }
+
+      try {
+        const devices = await this.printerManager.scanBluetoothDevices()
+        res.json({ devices })
+      } catch (error) {
+        logger.error('Error getting Bluetooth devices', error)
+        res.status(500).json({ error: 'Failed to get Bluetooth devices' })
+      }
+    })
+
+    // Scan for new Bluetooth devices
+    this.app.get('/api/bluetooth/scan', async (_req: Request, res: Response) => {
+      if (!this.printerManager) {
+        res.status(503).json({ error: 'Printer manager not available' })
+        return
+      }
+
+      try {
+        const devices = await this.printerManager.startBluetoothScan()
+        res.json({ devices })
+      } catch (error) {
+        logger.error('Error scanning Bluetooth', error)
+        res.status(500).json({ error: 'Failed to scan Bluetooth devices' })
+      }
+    })
+
+    // Pair with a Bluetooth device
+    this.app.post('/api/bluetooth/pair', async (req: Request, res: Response) => {
+      if (!this.printerManager) {
+        res.status(503).json({ error: 'Printer manager not available' })
+        return
+      }
+
+      try {
+        const { address } = req.body
+
+        if (!address) {
+          res.status(400).json({ error: 'Missing Bluetooth address' })
+          return
+        }
+
+        const result = await this.printerManager.pairBluetoothDevice(address)
+        if (result.success) {
+          res.json({ success: true, message: 'Device paired successfully' })
+        } else {
+          res.status(400).json({ success: false, error: result.error || 'Pairing failed' })
+        }
+      } catch (error) {
+        logger.error('Error pairing Bluetooth device', error)
+        res.status(500).json({ error: 'Failed to pair Bluetooth device' })
       }
     })
 
