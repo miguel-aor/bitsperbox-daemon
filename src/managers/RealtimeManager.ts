@@ -481,8 +481,14 @@ export class RealtimeManager {
 
     try {
       const escposData = await this.fetchEscPosData(ticket.order_id, 'customer')
+      logger.debug(`Customer ticket escposData: ${escposData ? `${escposData.length} chars` : 'NULL'}`)
+      logger.debug(`onCustomerTicket callback: ${this.onCustomerTicket ? 'SET' : 'NOT SET'}`)
+
       if (escposData && this.onCustomerTicket) {
         await this.onCustomerTicket(ticket.id, ticket.order_id, escposData)
+        logger.info(`✓ Customer ticket printed for order ${ticket.order_id}`)
+      } else {
+        logger.warn(`Customer ticket NOT printed - escposData: ${!!escposData}, callback: ${!!this.onCustomerTicket}`)
       }
       await this.completePrintJob(claim.job_id!, true)
     } catch (error) {
