@@ -200,15 +200,20 @@ async function loadPrinters() {
       return;
     }
 
-    listEl.innerHTML = data.printers.map(printer => `
-      <div class="printer-item" data-vendor="${printer.vendorId}" data-product="${printer.productId}" data-path="${printer.devicePath || ''}">
-        <div class="printer-info">
-          <span class="printer-name">${printer.vendorName || 'Impresora USB'}</span>
-          <span class="printer-path">${printer.devicePath || `${printer.vendorId}:${printer.productId}`}</span>
+    listEl.innerHTML = data.printers.map(printer => {
+      const vid = printer.vendorId || 0;
+      const pid = printer.productId || 0;
+      const path = printer.devicePath || '';
+      return `
+        <div class="printer-item" data-vendor="${vid}" data-product="${pid}" data-path="${path}">
+          <div class="printer-info">
+            <span class="printer-name">${printer.vendorName || 'Impresora USB'}</span>
+            <span class="printer-path">${path || `${vid}:${pid}`}</span>
+          </div>
+          <div class="printer-check"></div>
         </div>
-        <div class="printer-check"></div>
-      </div>
-    `).join('');
+      `;
+    }).join('');
 
     // Add click handlers
     document.querySelectorAll('.printer-item').forEach(item => {
@@ -231,11 +236,20 @@ async function selectPrinter(item) {
   item.classList.add('selected');
   item.querySelector('.printer-check').textContent = '✓';
 
+  const vendorId = parseInt(item.dataset.vendor, 10);
+  const productId = parseInt(item.dataset.product, 10);
+
+  // Validate
+  if (isNaN(vendorId) || isNaN(productId) || vendorId === 0 || productId === 0) {
+    showToast('Error: Impresora sin ID válido', 'error');
+    return;
+  }
+
   const printerConfig = {
     type: 'usb',
-    vendorId: parseInt(item.dataset.vendor),
-    productId: parseInt(item.dataset.product),
-    devicePath: item.dataset.path,
+    vendorId,
+    productId,
+    devicePath: item.dataset.path || '',
   };
 
   // Save printer config
@@ -246,7 +260,7 @@ async function selectPrinter(item) {
     });
     showToast('Impresora USB seleccionada', 'success');
   } catch (error) {
-    showToast('Error guardando impresora', 'error');
+    showToast(error.message || 'Error guardando impresora', 'error');
   }
 }
 
