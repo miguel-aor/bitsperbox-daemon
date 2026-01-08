@@ -184,6 +184,7 @@ export class PrintService {
   /**
    * Print a customer ticket
    * En multi-printer mode, va a customer_ticket_printer
+   * Si cashDrawerEnabled está activo, abre el cajón automáticamente
    */
   async printCustomerTicket(ticketId: string, orderId: string, escposData: string): Promise<boolean> {
     logger.print(`Printing customer ticket ${ticketId}...`)
@@ -205,6 +206,15 @@ export class PrintService {
 
       if (success) {
         logger.success(`Customer ticket printed`)
+
+        // Auto-open cash drawer if enabled in assignment
+        if (this.useRegistry && this.printerRegistry) {
+          const assignment = this.printerRegistry.getAssignment('customer_ticket')
+          if (assignment?.cashDrawerEnabled) {
+            logger.print(`Opening cash drawer (auto)...`)
+            await this.openCashDrawer()
+          }
+        }
       } else {
         logger.error(`Failed to print customer ticket`)
       }
