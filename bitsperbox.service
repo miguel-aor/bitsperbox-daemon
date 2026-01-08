@@ -1,0 +1,29 @@
+[Unit]
+Description=BitsperBox Daemon - Hardware Bridge for BitsperFoods
+Documentation=https://github.com/miguel-aor/bitsperbox-daemon
+After=network.target bluetooth.target
+Wants=bluetooth.target
+
+[Service]
+Type=simple
+User=admin1
+Group=admin1
+WorkingDirectory=/home/admin1/bitsperbox-daemon
+ExecStart=/usr/bin/node /home/admin1/bitsperbox-daemon/dist/index.js
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=bitsperbox
+
+# Environment
+Environment=NODE_ENV=production
+
+# Security
+NoNewPrivileges=false
+
+# Permissions for hardware access
+SupplementaryGroups=dialout bluetooth lp
+
+[Install]
+WantedBy=multi-user.target
