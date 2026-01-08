@@ -19,6 +19,17 @@ const KNOWN_PRINTER_VENDORS = [
   { vendorId: 0x0416, name: 'Winbond (Generic China)' },
   { vendorId: 0x1a86, name: 'QinHeng (Generic China)' },
   { vendorId: 0x6868, name: 'Generic POS' },
+  { vendorId: 0x28e9, name: 'GDMicroelectronics' },
+  { vendorId: 0x040a, name: 'Kodak' },
+  { vendorId: 0x0456, name: 'Analog Devices' },
+  { vendorId: 0x0471, name: 'Philips' },
+  { vendorId: 0x20d1, name: 'Simba' },
+  { vendorId: 0x0fe6, name: 'Kontron' },
+  { vendorId: 0x4348, name: 'WinChipHead (CH340)' },
+  { vendorId: 0x1504, name: 'SNBC' },
+  { vendorId: 0x0493, name: 'MAG Technology' },
+  { vendorId: 0x0fe6, name: 'Citizen' },
+  { vendorId: 0x0485, name: 'Nokia' },
 ]
 
 interface DetectedPrinter {
