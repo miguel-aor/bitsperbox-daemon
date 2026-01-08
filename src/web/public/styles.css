@@ -557,6 +557,423 @@ footer {
   font-size: 0.85rem;
 }
 
+/* ============================================
+   Multi-Printer Styles
+   ============================================ */
+
+/* Card Header with button */
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.card-header h2 {
+  margin-bottom: 0;
+}
+
+.btn-sm {
+  padding: 6px 12px;
+  font-size: 0.8rem;
+}
+
+.btn-lg {
+  padding: 16px 32px;
+  font-size: 1.05rem;
+}
+
+/* Local Printers List */
+.mp-printer-list {
+  margin-bottom: 20px;
+}
+
+.mp-printer-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px;
+  background: var(--bg);
+  border-radius: var(--radius);
+  margin-bottom: 8px;
+  border: 1px solid var(--border);
+}
+
+.mp-printer-icon {
+  font-size: 1.5rem;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(249, 115, 22, 0.1);
+  border-radius: 8px;
+}
+
+.mp-printer-details {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.mp-printer-details strong {
+  font-size: 0.95rem;
+}
+
+.mp-printer-details small {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-family: monospace;
+}
+
+.mp-printer-status {
+  font-size: 0.75rem;
+  margin-top: 4px;
+}
+
+.mp-printer-status.ready {
+  color: var(--success);
+}
+
+.mp-printer-status.error {
+  color: var(--danger);
+}
+
+.mp-printer-status.disconnected {
+  color: var(--warning);
+}
+
+.mp-printer-status.unknown {
+  color: var(--text-muted);
+}
+
+.mp-printer-actions {
+  display: flex;
+  gap: 6px;
+}
+
+/* Add Printer Section */
+.mp-add-printer {
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+  margin-top: 16px;
+}
+
+.mp-add-printer h4 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin-bottom: 12px;
+  color: var(--text);
+}
+
+/* Add Printer Type Tabs */
+.mp-add-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 16px;
+  padding: 3px;
+  background: var(--bg);
+  border-radius: var(--radius);
+}
+
+.mp-add-tab {
+  flex: 1;
+  padding: 8px 10px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  border-radius: calc(var(--radius) - 2px);
+  transition: all 0.2s;
+}
+
+.mp-add-tab:hover {
+  color: var(--text);
+  background: rgba(255,255,255,0.05);
+}
+
+.mp-add-tab.active {
+  background: var(--secondary);
+  color: white;
+}
+
+/* Add Printer Sections */
+.mp-add-section {
+  display: none;
+}
+
+.mp-add-section.active {
+  display: block;
+}
+
+/* Detected Devices List */
+.mp-detected-list {
+  margin-bottom: 12px;
+}
+
+.mp-detected-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--bg);
+  border-radius: var(--radius);
+  margin-bottom: 6px;
+  border: 1px dashed var(--border);
+}
+
+.mp-detected-item.registered {
+  opacity: 0.5;
+}
+
+.mp-detected-name {
+  font-weight: 500;
+  font-size: 0.9rem;
+}
+
+.mp-detected-info {
+  flex: 1;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-family: monospace;
+}
+
+.registered-badge {
+  font-size: 0.7rem;
+  color: var(--success);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Form Row */
+.form-row {
+  display: flex;
+  gap: 12px;
+}
+
+.form-row .form-group {
+  flex: 1;
+}
+
+.form-group-sm {
+  flex: 0 0 80px !important;
+}
+
+/* Assignments Section */
+.mp-assignments {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.mp-assignment-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px;
+  background: var(--bg);
+  border-radius: var(--radius);
+  gap: 16px;
+}
+
+.mp-assignment-label {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+}
+
+.mp-role-icon {
+  font-size: 1.3rem;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(249, 115, 22, 0.1);
+  border-radius: 8px;
+}
+
+.mp-assignment-label div {
+  display: flex;
+  flex-direction: column;
+}
+
+.mp-assignment-label strong {
+  font-size: 0.9rem;
+}
+
+.mp-assignment-label small {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.mp-assignment-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Select Dropdown */
+.mp-select {
+  padding: 8px 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 0.85rem;
+  min-width: 140px;
+  cursor: pointer;
+}
+
+.mp-select:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+/* Checkbox */
+.mp-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.mp-checkbox input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--primary);
+}
+
+/* Stations List */
+.mp-stations-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mp-station-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  background: var(--bg);
+  border-radius: var(--radius);
+}
+
+.mp-station-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.mp-station-icon {
+  font-size: 1.1rem;
+}
+
+.no-stations {
+  text-align: center;
+  color: var(--text-muted);
+  padding: 20px;
+  font-size: 0.9rem;
+}
+
+/* Dashboard Sync */
+.mp-sync-options {
+  margin-bottom: 16px;
+}
+
+.mp-toggle {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.mp-toggle input {
+  display: none;
+}
+
+.mp-toggle-slider {
+  width: 44px;
+  height: 24px;
+  background: var(--border);
+  border-radius: 12px;
+  position: relative;
+  transition: background 0.2s;
+}
+
+.mp-toggle-slider::after {
+  content: '';
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  background: white;
+  border-radius: 50%;
+  top: 3px;
+  left: 3px;
+  transition: transform 0.2s;
+}
+
+.mp-toggle input:checked + .mp-toggle-slider {
+  background: var(--primary);
+}
+
+.mp-toggle input:checked + .mp-toggle-slider::after {
+  transform: translateX(20px);
+}
+
+/* Dashboard Preview */
+.mp-dashboard-preview {
+  margin-top: 20px;
+  padding: 16px;
+  background: var(--bg);
+  border-radius: var(--radius);
+}
+
+.mp-dashboard-preview h4 {
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin-bottom: 12px;
+  color: var(--text);
+}
+
+.mp-dashboard-item {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.85rem;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.mp-dashboard-item:last-child {
+  border-bottom: none;
+}
+
+/* Save Section */
+.mp-save-section {
+  text-align: center;
+  padding: 24px 0;
+}
+
+.save-hint {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin-top: 12px;
+}
+
+/* Connection Status Warning */
+.connection-status.warning {
+  color: var(--warning);
+}
+
 /* Responsive */
 @media (max-width: 480px) {
   .container {
@@ -573,5 +990,50 @@ footer {
 
   .btn {
     width: 100%;
+  }
+
+  /* Multi-printer responsive */
+  .mp-assignment-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .mp-assignment-controls {
+    width: 100%;
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .mp-select {
+    width: 100%;
+  }
+
+  .mp-station-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .mp-station-row .mp-select {
+    width: 100%;
+  }
+
+  .form-row {
+    flex-direction: column;
+  }
+
+  .form-group-sm {
+    flex: 1 !important;
+  }
+
+  .mp-printer-card {
+    flex-wrap: wrap;
+  }
+
+  .mp-printer-actions {
+    width: 100%;
+    margin-top: 8px;
+    justify-content: flex-end;
   }
 }

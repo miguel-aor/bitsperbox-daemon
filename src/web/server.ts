@@ -11,9 +11,18 @@ import {
   clearConfig,
   getConfigPath,
   isConfigured,
+  getLocalPrinters,
+  saveLocalPrinters,
+  addLocalPrinter,
+  removeLocalPrinter,
+  getPrinterAssignments,
+  savePrinterAssignments,
+  setSyncWithDashboard,
+  getSyncWithDashboard,
 } from '../utils/config.js'
 import { PrinterManager } from '../managers/PrinterManager.js'
-import type { DeviceConfig, PrinterConfig } from '../types/index.js'
+import { PrinterRegistry } from '../managers/PrinterRegistry.js'
+import type { DeviceConfig, PrinterConfig, LocalPrinter, PrinterAssignment } from '../types/index.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -35,6 +44,7 @@ function getPublicDir(): string {
 interface WebServerOptions {
   port?: number
   printerManager?: PrinterManager
+  printerRegistry?: PrinterRegistry
   getStatus?: () => StatusInfo
 }
 
@@ -49,6 +59,7 @@ export class WebServer {
   private app: express.Application
   private port: number
   private printerManager?: PrinterManager
+  private printerRegistry?: PrinterRegistry
   private getStatus?: () => StatusInfo
   private server?: ReturnType<typeof this.app.listen>
 
@@ -56,6 +67,7 @@ export class WebServer {
     this.app = express()
     this.port = options.port || 3333
     this.printerManager = options.printerManager
+    this.printerRegistry = options.printerRegistry
     this.getStatus = options.getStatus
 
     this.setupMiddleware()
@@ -330,6 +342,220 @@ export class WebServer {
       }
     })
 
+    // ============================================
+    // Multi-Printer API Endpoints
+    // ============================================
+
+    // Get all local printers
+    this.app.get('/api/printers/local', (_req: Request, res: Response) => {
+      try {
+        const printers = getLocalPrinters()
+        res.json({ printers })
+      } catch (error) {
+        logger.error('Error getting local printers', error)
+        res.status(500).json({ error: 'Failed to get local printers' })
+      }
+    })
+
+    // Add/Update a local printer
+    this.app.post('/api/printers/local', (req: Request, res: Response) => {
+      try {
+        const printer: LocalPrinter = req.body
+
+        if (!printer.id || !printer.name || !printer.type) {
+          res.status(400).json({ error: 'Missing required fields: id, name, type' })
+          return
+        }
+
+        addLocalPrinter(printer)
+
+        // Update registry if available
+        if (this.printerRegistry) {
+          this.printerRegistry.registerPrinter(printer)
+        }
+
+        logger.info(`Local printer added/updated: ${printer.name} (${printer.id})`)
+        res.json({ success: true, printer })
+      } catch (error) {
+        logger.error('Error adding local printer', error)
+        res.status(500).json({ error: 'Failed to add local printer' })
+      }
+    })
+
+    // Delete a local printer
+    this.app.delete('/api/printers/local/:id', (req: Request, res: Response) => {
+      try {
+        const { id } = req.params
+
+        removeLocalPrinter(id)
+
+        // Update registry if available
+        if (this.printerRegistry) {
+          this.printerRegistry.unregisterPrinter(id)
+        }
+
+        logger.info(`Local printer removed: ${id}`)
+        res.json({ success: true })
+      } catch (error) {
+        logger.error('Error removing local printer', error)
+        res.status(500).json({ error: 'Failed to remove local printer' })
+      }
+    })
+
+    // Get printer assignments
+    this.app.get('/api/printers/assignments', (_req: Request, res: Response) => {
+      try {
+        const assignments = getPrinterAssignments()
+        res.json({ assignments })
+      } catch (error) {
+        logger.error('Error getting printer assignments', error)
+        res.status(500).json({ error: 'Failed to get printer assignments' })
+      }
+    })
+
+    // Save printer assignments
+    this.app.post('/api/printers/assignments', (req: Request, res: Response) => {
+      try {
+        const { assignments } = req.body as { assignments: PrinterAssignment[] }
+
+        if (!Array.isArray(assignments)) {
+          res.status(400).json({ error: 'assignments must be an array' })
+          return
+        }
+
+        savePrinterAssignments(assignments)
+
+        // Update registry if available
+        if (this.printerRegistry) {
+          this.printerRegistry.setAssignments(assignments)
+        }
+
+        logger.info(`Saved ${assignments.length} printer assignments`)
+        res.json({ success: true, assignments })
+      } catch (error) {
+        logger.error('Error saving printer assignments', error)
+        res.status(500).json({ error: 'Failed to save printer assignments' })
+      }
+    })
+
+    // Get/Set dashboard sync setting
+    this.app.get('/api/printers/sync-setting', (_req: Request, res: Response) => {
+      try {
+        const syncEnabled = getSyncWithDashboard()
+        res.json({ syncEnabled })
+      } catch (error) {
+        res.status(500).json({ error: 'Failed to get sync setting' })
+      }
+    })
+
+    this.app.post('/api/printers/sync-setting', (req: Request, res: Response) => {
+      try {
+        const { enabled } = req.body
+        setSyncWithDashboard(!!enabled)
+        logger.info(`Dashboard sync ${enabled ? 'enabled' : 'disabled'}`)
+        res.json({ success: true, syncEnabled: !!enabled })
+      } catch (error) {
+        res.status(500).json({ error: 'Failed to set sync setting' })
+      }
+    })
+
+    // Test a specific printer
+    this.app.post('/api/printers/:id/test', async (req: Request, res: Response) => {
+      const { id } = req.params
+
+      try {
+        let success = false
+
+        if (this.printerRegistry) {
+          success = await this.printerRegistry.testPrinter(id)
+        } else if (this.printerManager) {
+          // Legacy mode: test the main printer
+          success = await this.printerManager.testConnection()
+        }
+
+        res.json({ success, message: success ? 'Printer connected' : 'Printer not available' })
+      } catch (error) {
+        logger.error(`Error testing printer ${id}`, error)
+        res.status(500).json({ error: 'Failed to test printer' })
+      }
+    })
+
+    // Print test page to specific printer
+    this.app.post('/api/printers/:id/test-print', async (req: Request, res: Response) => {
+      const { id } = req.params
+
+      try {
+        let success = false
+
+        if (this.printerRegistry) {
+          success = await this.printerRegistry.printTestPage(id)
+        } else if (this.printerManager) {
+          success = await this.printerManager.printTestPage()
+        }
+
+        res.json({ success, message: success ? 'Test page printed' : 'Print failed' })
+      } catch (error) {
+        logger.error(`Error printing test page to ${id}`, error)
+        res.status(500).json({ error: 'Failed to print test page' })
+      }
+    })
+
+    // Open cash drawer on specific printer
+    this.app.post('/api/printers/:id/drawer', async (req: Request, res: Response) => {
+      const { id } = req.params
+
+      try {
+        let success = false
+
+        if (this.printerRegistry) {
+          success = await this.printerRegistry.openCashDrawer(id)
+        } else if (this.printerManager) {
+          // Legacy mode: send cash drawer command
+          const cashDrawerCommand = Buffer.from([0x1b, 0x70, 0x00, 0x19, 0xfa])
+          success = await this.printerManager.print(cashDrawerCommand)
+        }
+
+        res.json({ success, message: success ? 'Cash drawer opened' : 'Failed to open drawer' })
+      } catch (error) {
+        logger.error(`Error opening cash drawer on ${id}`, error)
+        res.status(500).json({ error: 'Failed to open cash drawer' })
+      }
+    })
+
+    // Get multi-printer status
+    this.app.get('/api/printers/multi-status', (_req: Request, res: Response) => {
+      try {
+        const localPrinters = getLocalPrinters()
+        const assignments = getPrinterAssignments()
+        const syncEnabled = getSyncWithDashboard()
+
+        let registryStatus: Record<string, unknown> | null = null
+        if (this.printerRegistry) {
+          const status = this.printerRegistry.getStatus()
+          registryStatus = {}
+          for (const [id, info] of status) {
+            registryStatus[id] = {
+              name: info.config.name,
+              type: info.config.type,
+              status: info.status,
+              lastUsed: info.lastUsed?.toISOString(),
+            }
+          }
+        }
+
+        res.json({
+          mode: this.printerRegistry ? 'multi-printer' : 'legacy',
+          localPrinters,
+          assignments,
+          syncEnabled,
+          registryStatus,
+        })
+      } catch (error) {
+        logger.error('Error getting multi-printer status', error)
+        res.status(500).json({ error: 'Failed to get multi-printer status' })
+      }
+    })
+
     // Health check
     this.app.get('/api/health', (_req: Request, res: Response) => {
       res.json({ status: 'ok', timestamp: new Date().toISOString() })
@@ -344,6 +570,10 @@ export class WebServer {
 
   setPrinterManager(printerManager: PrinterManager) {
     this.printerManager = printerManager
+  }
+
+  setPrinterRegistry(printerRegistry: PrinterRegistry) {
+    this.printerRegistry = printerRegistry
   }
 
   setStatusGetter(getStatus: () => StatusInfo) {

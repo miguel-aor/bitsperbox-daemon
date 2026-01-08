@@ -20,6 +20,7 @@
       <button class="tab active" data-tab="status">Estado</button>
       <button class="tab" data-tab="config">Configuración</button>
       <button class="tab" data-tab="printer">Impresora</button>
+      <button class="tab" data-tab="multi-printer">Multi-Impresora</button>
     </nav>
 
     <!-- Status Tab -->
@@ -191,8 +192,176 @@
       </div>
     </section>
 
+    <!-- Multi-Printer Tab -->
+    <section id="multi-printer" class="tab-content">
+      <!-- Local Printers Card -->
+      <div class="card">
+        <div class="card-header">
+          <h2>Impresoras Locales</h2>
+          <button id="mp-refresh-printers" class="btn btn-sm btn-secondary">Actualizar</button>
+        </div>
+        <p class="section-desc">Impresoras físicas conectadas a este dispositivo</p>
+
+        <div id="mp-printer-list" class="mp-printer-list">
+          <p class="loading">Cargando impresoras...</p>
+        </div>
+
+        <!-- Add Printer Form -->
+        <div class="mp-add-printer">
+          <h4>Agregar Impresora</h4>
+          <div class="mp-add-tabs">
+            <button class="mp-add-tab active" data-add-type="usb">USB</button>
+            <button class="mp-add-tab" data-add-type="network">Red</button>
+            <button class="mp-add-tab" data-add-type="bluetooth">Bluetooth</button>
+          </div>
+
+          <!-- USB Add -->
+          <div id="mp-add-usb" class="mp-add-section active">
+            <div id="mp-usb-detected" class="mp-detected-list">
+              <p class="no-printers">Escaneando...</p>
+            </div>
+            <button id="mp-scan-usb" class="btn btn-secondary">Escanear USB</button>
+          </div>
+
+          <!-- Network Add -->
+          <div id="mp-add-network" class="mp-add-section">
+            <div class="form-row">
+              <div class="form-group">
+                <label for="mp-net-name">Nombre</label>
+                <input type="text" id="mp-net-name" placeholder="Cocina Principal">
+              </div>
+              <div class="form-group">
+                <label for="mp-net-ip">IP</label>
+                <input type="text" id="mp-net-ip" placeholder="192.168.1.100">
+              </div>
+              <div class="form-group form-group-sm">
+                <label for="mp-net-port">Puerto</label>
+                <input type="number" id="mp-net-port" value="9100">
+              </div>
+            </div>
+            <button id="mp-add-network-btn" class="btn btn-secondary">Agregar Red</button>
+          </div>
+
+          <!-- Bluetooth Add -->
+          <div id="mp-add-bluetooth" class="mp-add-section">
+            <div id="mp-bt-detected" class="mp-detected-list">
+              <p class="no-printers">Sin dispositivos</p>
+            </div>
+            <div class="form-actions-inline">
+              <button id="mp-scan-bt" class="btn btn-secondary">Escanear</button>
+              <button id="mp-load-bt" class="btn btn-secondary">Ver Pareados</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Role Assignments Card -->
+      <div class="card">
+        <h2>Asignación de Roles</h2>
+        <p class="section-desc">Define qué impresora se usa para cada tipo de ticket</p>
+
+        <div class="mp-assignments">
+          <div class="mp-assignment-row">
+            <div class="mp-assignment-label">
+              <span class="mp-role-icon">🧾</span>
+              <div>
+                <strong>Tickets Cliente</strong>
+                <small>Recibos para el cliente</small>
+              </div>
+            </div>
+            <div class="mp-assignment-controls">
+              <select id="mp-role-customer" class="mp-select">
+                <option value="">Sin asignar</option>
+              </select>
+              <label class="mp-checkbox">
+                <input type="checkbox" id="mp-drawer-customer">
+                <span>Abrir cajón</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="mp-assignment-row">
+            <div class="mp-assignment-label">
+              <span class="mp-role-icon">👨‍🍳</span>
+              <div>
+                <strong>Cocina (Default)</strong>
+                <small>Tickets de preparación</small>
+              </div>
+            </div>
+            <div class="mp-assignment-controls">
+              <select id="mp-role-kitchen" class="mp-select">
+                <option value="">Sin asignar</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="mp-assignment-row">
+            <div class="mp-assignment-label">
+              <span class="mp-role-icon">📋</span>
+              <div>
+                <strong>Fiscal</strong>
+                <small>Reportes X/Z</small>
+              </div>
+            </div>
+            <div class="mp-assignment-controls">
+              <select id="mp-role-fiscal" class="mp-select">
+                <option value="">Sin asignar</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Station Assignments Card -->
+      <div class="card">
+        <div class="card-header">
+          <h2>Estaciones de Cocina</h2>
+          <button id="mp-sync-stations" class="btn btn-sm btn-secondary">Sincronizar</button>
+        </div>
+        <p class="section-desc">Asigna impresoras a cada estación de cocina del dashboard</p>
+
+        <div id="mp-stations-list" class="mp-stations-list">
+          <p class="no-stations">No hay estaciones configuradas. Sincroniza con el dashboard.</p>
+        </div>
+      </div>
+
+      <!-- Dashboard Sync Card -->
+      <div class="card">
+        <h2>Sincronización con Dashboard</h2>
+        <p class="section-desc">Sincroniza la configuración de impresoras desde el dashboard de BitsperFoods</p>
+
+        <div class="mp-sync-options">
+          <label class="mp-toggle">
+            <input type="checkbox" id="mp-auto-sync">
+            <span class="mp-toggle-slider"></span>
+            <span>Sincronizar automáticamente al iniciar</span>
+          </label>
+        </div>
+
+        <div class="form-actions-inline" style="margin-top: 16px;">
+          <button id="mp-sync-dashboard" class="btn btn-primary">
+            Sincronizar Ahora
+          </button>
+          <span id="mp-sync-status" class="connection-status"></span>
+        </div>
+
+        <div id="mp-dashboard-preview" class="mp-dashboard-preview" style="display: none;">
+          <h4>Configuración del Dashboard</h4>
+          <div id="mp-dashboard-info"></div>
+        </div>
+      </div>
+
+      <!-- Save Button -->
+      <div class="mp-save-section">
+        <button id="mp-save-all" class="btn btn-primary btn-lg">
+          Guardar Toda la Configuración
+        </button>
+        <p class="save-hint">Después de guardar, reinicia el daemon para aplicar los cambios</p>
+      </div>
+    </section>
+
     <footer>
-      <p>BitsperBox v1.0.0 - BitsperFoods</p>
+      <p>BitsperBox v1.1.0 - BitsperFoods</p>
     </footer>
   </div>
 

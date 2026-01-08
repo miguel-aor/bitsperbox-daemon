@@ -10,7 +10,12 @@ export interface DeviceConfig {
   supabaseUrl: string
   supabaseKey: string
   frontendUrl: string // URL del frontend para APIs de tickets (ej: https://app.bitsperfoods.com)
+  // Legacy single printer (backward compatibility)
   printer?: PrinterConfig
+  // Multi-printer support
+  localPrinters?: LocalPrinter[]
+  printerAssignments?: PrinterAssignment[]
+  syncWithDashboard?: boolean  // Si true, lee assignments de Supabase
 }
 
 export interface PrinterConfig {
@@ -136,4 +141,104 @@ export interface ClaimJobResponse {
   success: boolean
   jobId?: string
   alreadyClaimed?: boolean
+}
+
+// ============================================
+// Multi-Printer Types
+// ============================================
+
+/**
+ * Roles de impresora (deben coincidir con dashboard)
+ */
+export type PrinterRole =
+  | 'customer_ticket'
+  | 'kitchen_default'
+  | 'fiscal'
+  | 'station'
+
+/**
+ * Impresora física conectada al Pi
+ */
+export interface LocalPrinter {
+  id: string                    // ID único local: "printer-1", "usb-epson"
+  name: string                  // Nombre visible: "Epson TM-T20II"
+  type: 'usb' | 'network' | 'bluetooth'
+  // USB
+  vendorId?: number
+  productId?: number
+  // Network
+  ip?: string
+  port?: number
+  // Bluetooth
+  bluetoothAddress?: string
+  bluetoothName?: string
+  // Estado
+  status?: 'ready' | 'error' | 'disconnected'
+  lastUsed?: string
+}
+
+/**
+ * Asignación: rol del dashboard → impresora local
+ */
+export interface PrinterAssignment {
+  role: PrinterRole
+  stationId?: string            // Solo para role='station'
+  stationName?: string          // Nombre de estación para UI
+  localPrinterId: string        // Referencia a LocalPrinter.id
+  copies?: number               // Copias por ticket
+  cashDrawerEnabled?: boolean   // Solo para customer_ticket
+}
+
+/**
+ * Config de impresora del dashboard (para sincronización)
+ */
+export interface DashboardPrinterConfig {
+  printer_name: string
+  print_mode: 'driver' | 'network'
+  network_ip?: string
+  network_port?: number
+  enabled: boolean
+  copies: number
+  cash_drawer_enabled?: boolean
+}
+
+/**
+ * PrinterSettings del dashboard
+ */
+export interface DashboardPrinterSettings {
+  customer_ticket_printer?: DashboardPrinterConfig | null
+  fiscal_receipt_printer?: DashboardPrinterConfig | null
+  kitchen_default_printer?: DashboardPrinterConfig | null
+}
+
+/**
+ * Estación de cocina con config de impresora
+ */
+export interface KitchenStationPrinter {
+  stationId: string
+  stationName: string
+  printerConfig: DashboardPrinterConfig | null
+}
+
+/**
+ * Ticket de estación (para routing)
+ */
+export interface StationTicket {
+  stationId: string
+  stationName: string
+  printerConfig?: {
+    printer_name: string
+    copies: number
+  }
+  escposBase64: string
+}
+
+/**
+ * Resultado de impresión multi-printer
+ */
+export interface MultiPrintResult {
+  success: boolean
+  printerId: string
+  printerName: string
+  error?: string
 }
