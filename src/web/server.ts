@@ -362,8 +362,25 @@ export class WebServer {
       try {
         const printer: LocalPrinter = req.body
 
-        if (!printer.id || !printer.name || !printer.type) {
-          res.status(400).json({ error: 'Missing required fields: id, name, type' })
+        if (!printer.name || !printer.type) {
+          res.status(400).json({ error: 'Missing required fields: name, type' })
+          return
+        }
+
+        // Generate id if not provided
+        if (!printer.id) {
+          printer.id = `printer-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`
+        }
+
+        // Validate USB specific fields
+        if (printer.type === 'usb' && (!printer.vendorId || !printer.productId)) {
+          res.status(400).json({ error: 'USB printer requires vendorId and productId' })
+          return
+        }
+
+        // Validate network specific fields
+        if (printer.type === 'network' && !printer.ip) {
+          res.status(400).json({ error: 'Network printer requires ip address' })
           return
         }
 
