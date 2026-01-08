@@ -731,13 +731,20 @@ async function mpScanUSB() {
       return;
     }
 
-    listEl.innerHTML = available.map(printer => `
-      <div class="mp-detected-item" data-vendor="${printer.vendorId}" data-product="${printer.productId}" data-path="${printer.devicePath || ''}">
-        <span class="mp-detected-name">${printer.vendorName || 'Impresora USB'}</span>
-        <span class="mp-detected-info">${printer.devicePath || `${printer.vendorId}:${printer.productId}`}</span>
-        <button class="btn btn-sm btn-primary" onclick="mpAddUSBPrinter(this.parentElement)">Agregar</button>
-      </div>
-    `).join('');
+    console.log('Available USB printers:', available);
+
+    listEl.innerHTML = available.map(printer => {
+      const vid = printer.vendorId || 0;
+      const pid = printer.productId || 0;
+      const path = printer.devicePath || '';
+      return `
+        <div class="mp-detected-item" data-vendor="${vid}" data-product="${pid}" data-path="${path}">
+          <span class="mp-detected-name">${printer.vendorName || 'Impresora USB'}</span>
+          <span class="mp-detected-info">${path || `${vid}:${pid}`}</span>
+          <button class="btn btn-sm btn-primary" onclick="mpAddUSBPrinter(this.parentElement)">Agregar</button>
+        </div>
+      `;
+    }).join('');
   } catch (error) {
     listEl.innerHTML = '<p class="no-printers">Error escaneando USB</p>';
   }
@@ -746,13 +753,26 @@ async function mpScanUSB() {
 // Add USB printer
 async function mpAddUSBPrinter(element) {
   const name = element.querySelector('.mp-detected-name').textContent;
+  const vendorId = parseInt(element.dataset.vendor, 10);
+  const productId = parseInt(element.dataset.product, 10);
+  const devicePath = element.dataset.path || '';
+
+  // Validate required fields
+  if (isNaN(vendorId) || isNaN(productId)) {
+    console.error('USB printer missing vendorId or productId:', { vendorId, productId, element: element.dataset });
+    showToast('Error: Impresora sin ID válido', 'error');
+    return;
+  }
+
   const printer = {
     name,
     type: 'usb',
-    vendorId: parseInt(element.dataset.vendor),
-    productId: parseInt(element.dataset.product),
-    devicePath: element.dataset.path,
+    vendorId,
+    productId,
+    devicePath,
   };
+
+  console.log('Adding USB printer:', printer);
 
   try {
     await api('/printers/local', {
@@ -763,7 +783,8 @@ async function mpAddUSBPrinter(element) {
     await mpLoadLocalPrinters();
     mpScanUSB();
   } catch (error) {
-    showToast('Error agregando impresora', 'error');
+    console.error('Error adding USB printer:', error);
+    showToast(error.message || 'Error agregando impresora', 'error');
   }
 }
 
