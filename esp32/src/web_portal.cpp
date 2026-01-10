@@ -76,6 +76,13 @@ void WebPortal::handleSave() {
         strncpy(config.device_name, _server->arg("device_name").c_str(), sizeof(config.device_name) - 1);
     }
 
+    // Connection mode (wifi, ble, both)
+    if (_server->hasArg("conn_mode")) {
+        strncpy(config.connection_mode, _server->arg("conn_mode").c_str(), sizeof(config.connection_mode) - 1);
+    } else {
+        strncpy(config.connection_mode, "both", sizeof(config.connection_mode) - 1);
+    }
+
     // BitsperBox mode
     if (_server->hasArg("bb_ip")) {
         strncpy(config.bitsperbox_ip, _server->arg("bb_ip").c_str(), sizeof(config.bitsperbox_ip) - 1);
@@ -103,12 +110,13 @@ void WebPortal::handleSave() {
     String html = F("<!DOCTYPE html><html><head><meta charset='UTF-8'>"
         "<meta name='viewport' content='width=device-width,initial-scale=1.0'>"
         "<title>BitsperWatch - Guardado</title>"
-        "<style>body{font-family:sans-serif;background:#1a1a2e;color:#fff;"
-        "display:flex;justify-content:center;align-items:center;height:100vh;margin:0;}"
-        ".card{background:#16213e;padding:40px;border-radius:16px;text-align:center;}"
-        "h1{color:#00d9ff;}p{color:#aaa;}</style></head><body>"
-        "<div class='card'><h1>Configuracion Guardada</h1>"
-        "<p>El dispositivo se reiniciara en 3 segundos...</p></div></body></html>");
+        "<style>*{box-sizing:border-box}body{font-family:-apple-system,sans-serif;background:#1a1a2e;color:#fff;"
+        "display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0;padding:20px;}"
+        ".card{background:#16213e;padding:30px;border-radius:20px;text-align:center;width:100%;max-width:360px;}"
+        "h1{color:#00d9ff;font-size:24px;margin:0 0 10px;}p{color:#aaa;margin:0;}"
+        ".icon{font-size:60px;margin-bottom:20px;}</style></head><body>"
+        "<div class='card'><div class='icon'>&#10004;</div><h1>Configuracion Guardada</h1>"
+        "<p>Reiniciando en 3 segundos...</p></div></body></html>");
 
     _server->send(200, "text/html", html);
 
@@ -151,94 +159,378 @@ String WebPortal::scanNetworks() {
 String WebPortal::generateHTML() {
     String deviceId = Storage.getDeviceId();
 
-    String html = F("<!DOCTYPE html><html><head><meta charset='UTF-8'>"
-        "<meta name='viewport' content='width=device-width,initial-scale=1.0'>"
-        "<title>BitsperWatch Setup</title><style>"
-        "*{box-sizing:border-box}"
-        "body{font-family:-apple-system,sans-serif;background:linear-gradient(135deg,#1a1a2e,#16213e);"
-        "color:#fff;margin:0;padding:20px;min-height:100vh}"
-        ".container{max-width:400px;margin:0 auto}"
-        ".header{text-align:center;margin-bottom:30px}"
-        ".header h1{color:#00d9ff;margin:0;font-size:28px}"
-        ".header p{color:#888;margin:10px 0 0;font-size:14px}"
-        ".card{background:rgba(255,255,255,0.05);border-radius:16px;padding:24px;"
-        "margin-bottom:20px;border:1px solid rgba(255,255,255,0.1)}"
-        ".card h2{margin:0 0 20px;font-size:18px;color:#00d9ff}"
-        "label{display:block;margin-bottom:6px;color:#aaa;font-size:14px}"
-        "input,select{width:100%;padding:12px;border:1px solid rgba(255,255,255,0.2);"
-        "border-radius:8px;background:rgba(0,0,0,0.3);color:#fff;font-size:16px;margin-bottom:16px}"
-        "input:focus,select:focus{outline:none;border-color:#00d9ff}"
-        ".radio-group{display:flex;gap:16px;margin-bottom:16px}"
-        ".radio-option{flex:1;padding:16px;border:2px solid rgba(255,255,255,0.2);"
-        "border-radius:12px;cursor:pointer;text-align:center;transition:all 0.2s}"
-        ".radio-option:hover{border-color:rgba(0,217,255,0.5)}"
-        ".radio-option.selected{border-color:#00d9ff;background:rgba(0,217,255,0.1)}"
-        ".radio-option input{display:none}"
-        ".radio-option .icon{font-size:32px;margin-bottom:8px}"
-        ".radio-option .label{font-weight:600;color:#fff}"
-        ".radio-option .desc{font-size:12px;color:#888;margin-top:4px}"
-        ".mode-section{display:none}.mode-section.active{display:block}"
-        "button{width:100%;padding:16px;background:linear-gradient(135deg,#00d9ff,#00b4d8);"
-        "border:none;border-radius:12px;color:#000;font-size:18px;font-weight:600;cursor:pointer}"
-        "button:hover{opacity:0.9}"
-        ".networks{max-height:200px;overflow-y:auto;margin-bottom:16px}"
-        ".network{padding:12px;background:rgba(0,0,0,0.2);border-radius:8px;"
-        "margin-bottom:8px;cursor:pointer;display:flex;justify-content:space-between}"
-        ".network:hover{background:rgba(0,217,255,0.1)}"
-        ".scan-btn{background:transparent;border:1px solid #00d9ff;color:#00d9ff;"
-        "padding:10px;font-size:14px;margin-bottom:16px}"
-        "</style></head><body><div class='container'>"
-        "<div class='header'><h1>BitsperWatch</h1><p>ID: ");
+    String html = F(R"rawhtml(
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset='UTF-8'>
+    <meta name='viewport' content='width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no'>
+    <title>BitsperWatch Setup</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #fff;
+            min-height: 100vh;
+            padding: 20px;
+            padding-bottom: 100px;
+        }
+        .container { max-width: 400px; margin: 0 auto; }
+
+        /* Header */
+        .header {
+            text-align: center;
+            padding: 20px 0 30px;
+        }
+        .header h1 {
+            color: #00d9ff;
+            font-size: 28px;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+        .header .device-id {
+            color: #666;
+            font-size: 12px;
+            font-family: monospace;
+        }
+
+        /* Cards */
+        .card {
+            background: rgba(255,255,255,0.05);
+            border-radius: 16px;
+            padding: 20px;
+            margin-bottom: 16px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .card h2 {
+            font-size: 14px;
+            color: #00d9ff;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .card h2 .num {
+            background: #00d9ff;
+            color: #000;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: 700;
+        }
+
+        /* Form elements */
+        label {
+            display: block;
+            color: #888;
+            font-size: 13px;
+            margin-bottom: 6px;
+        }
+        input[type="text"], input[type="password"], input[type="number"], select {
+            width: 100%;
+            padding: 14px 16px;
+            border: 2px solid rgba(255,255,255,0.1);
+            border-radius: 12px;
+            background: rgba(0,0,0,0.3);
+            color: #fff;
+            font-size: 16px;
+            margin-bottom: 12px;
+            -webkit-appearance: none;
+        }
+        input:focus, select:focus {
+            outline: none;
+            border-color: #00d9ff;
+        }
+
+        /* Connection type selector - BIG buttons */
+        .conn-type-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-bottom: 8px;
+        }
+        .conn-btn {
+            padding: 20px 12px;
+            border: 2px solid rgba(255,255,255,0.2);
+            border-radius: 16px;
+            background: rgba(0,0,0,0.2);
+            cursor: pointer;
+            text-align: center;
+            transition: all 0.2s;
+        }
+        .conn-btn.full-width {
+            grid-column: span 2;
+        }
+        .conn-btn:hover {
+            border-color: rgba(0,217,255,0.5);
+        }
+        .conn-btn.selected {
+            border-color: #00d9ff;
+            background: rgba(0,217,255,0.15);
+        }
+        .conn-btn input { display: none; }
+        .conn-btn .icon {
+            font-size: 32px;
+            margin-bottom: 8px;
+        }
+        .conn-btn .title {
+            font-size: 16px;
+            font-weight: 600;
+            color: #fff;
+            margin-bottom: 4px;
+        }
+        .conn-btn .desc {
+            font-size: 11px;
+            color: #888;
+        }
+        .conn-btn.selected .title { color: #00d9ff; }
+        .conn-btn .badge {
+            display: inline-block;
+            background: #00d9ff;
+            color: #000;
+            font-size: 9px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            margin-top: 6px;
+            font-weight: 600;
+        }
+
+        /* Collapsible sections */
+        .section { display: none; }
+        .section.active { display: block; }
+
+        /* WiFi networks */
+        .scan-btn {
+            width: 100%;
+            padding: 12px;
+            background: transparent;
+            border: 2px dashed rgba(0,217,255,0.3);
+            border-radius: 12px;
+            color: #00d9ff;
+            font-size: 14px;
+            cursor: pointer;
+            margin-bottom: 12px;
+        }
+        .scan-btn:hover {
+            background: rgba(0,217,255,0.1);
+        }
+        .networks {
+            max-height: 180px;
+            overflow-y: auto;
+            margin-bottom: 12px;
+        }
+        .network {
+            padding: 12px 14px;
+            background: rgba(0,0,0,0.2);
+            border-radius: 10px;
+            margin-bottom: 8px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .network:hover { background: rgba(0,217,255,0.1); }
+        .network .name { font-size: 14px; }
+        .network .signal { color: #00d9ff; font-size: 12px; }
+
+        /* Info box */
+        .info-box {
+            background: rgba(0,217,255,0.1);
+            border: 1px solid rgba(0,217,255,0.3);
+            border-radius: 12px;
+            padding: 14px;
+            margin-bottom: 16px;
+        }
+        .info-box p {
+            font-size: 13px;
+            color: #aaa;
+            line-height: 1.5;
+        }
+        .info-box strong { color: #00d9ff; }
+
+        /* Submit button */
+        .submit-btn {
+            width: 100%;
+            padding: 18px;
+            background: linear-gradient(135deg, #00d9ff 0%, #00b4d8 100%);
+            border: none;
+            border-radius: 14px;
+            color: #000;
+            font-size: 18px;
+            font-weight: 700;
+            cursor: pointer;
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            right: 20px;
+            max-width: 400px;
+            margin: 0 auto;
+        }
+        .submit-btn:hover { opacity: 0.9; }
+        .submit-btn:disabled {
+            background: #444;
+            color: #888;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>BitsperWatch</h1>
+            <div class="device-id">)rawhtml");
 
     html += deviceId;
 
-    html += F("</p></div><form action='/save' method='POST'>"
-        "<div class='card'><h2>WiFi</h2>"
-        "<button type='button' class='scan-btn' onclick='scanNetworks()'>Buscar Redes</button>"
-        "<div id='networks' class='networks'></div>"
-        "<label>Nombre de Red (SSID)</label>"
-        "<input type='text' name='ssid' id='ssid' required placeholder='Tu red WiFi'>"
-        "<label>Contrasena</label>"
-        "<input type='password' name='password' id='password' placeholder='Contrasena WiFi'></div>"
-        "<div class='card'><h2>Nombre del Dispositivo</h2>"
-        "<input type='text' name='device_name' value='Mesero 1' placeholder='Ej: Mesero Juan'></div>"
-        "<div class='card'><h2>Modo de Conexion</h2>"
-        "<div class='radio-group'>"
-        "<label class='radio-option selected' id='opt-bitsperbox' onclick='setMode(\"bitsperbox\")'>"
-        "<input type='radio' name='mode' value='bitsperbox' checked>"
-        "<div class='icon'>[Pi]</div><div class='label'>BitsperBox</div>"
-        "<div class='desc'>Via Raspberry Pi</div></label>"
-        "<label class='radio-option' id='opt-direct' onclick='setMode(\"direct\")'>"
-        "<input type='radio' name='mode' value='direct'>"
-        "<div class='icon'>[Cloud]</div><div class='label'>Directo</div>"
-        "<div class='desc'>Via Supabase</div></label></div>"
-        "<div id='mode-bitsperbox' class='mode-section active'>"
-        "<label>IP del BitsperBox</label>"
-        "<input type='text' name='bb_ip' placeholder='192.168.1.100'>"
-        "<label>Puerto</label><input type='number' name='bb_port' value='3334'></div>"
-        "<div id='mode-direct' class='mode-section'>"
-        "<label>Supabase URL</label><input type='text' name='sb_url' placeholder='https://xxx.supabase.co'>"
-        "<label>Supabase Anon Key</label><input type='text' name='sb_key' placeholder='eyJ...'>"
-        "<label>Restaurant ID</label><input type='text' name='rest_id' placeholder='uuid'></div></div>"
-        "<button type='submit'>Guardar y Conectar</button></form></div>"
-        "<script>"
-        "function setMode(m){"
-        "document.querySelector('input[value=\"bitsperbox\"]').checked=(m==='bitsperbox');"
-        "document.querySelector('input[value=\"direct\"]').checked=(m==='direct');"
-        "document.getElementById('mode-bitsperbox').className='mode-section'+(m==='bitsperbox'?' active':'');"
-        "document.getElementById('mode-direct').className='mode-section'+(m==='direct'?' active':'');"
-        "document.getElementById('opt-bitsperbox').className='radio-option'+(m==='bitsperbox'?' selected':'');"
-        "document.getElementById('opt-direct').className='radio-option'+(m==='direct'?' selected':'');}"
-        "function scanNetworks(){"
-        "document.getElementById('networks').innerHTML='<p style=\"color:#888\">Buscando...</p>';"
-        "fetch('/scan').then(r=>r.json()).then(nets=>{"
-        "var h='';nets.sort((a,b)=>b.rssi-a.rssi);"
-        "nets.forEach(n=>{"
-        "var sig=n.rssi>-50?'****':n.rssi>-70?'***':n.rssi>-80?'**':'*';"
-        "h+='<div class=\"network\" onclick=\"selNet(\\''+n.ssid+'\\')\"><span>'+(n.encrypted?'# ':'')+n.ssid+'</span><span>'+sig+'</span></div>';});"
-        "document.getElementById('networks').innerHTML=h||'<p style=\"color:#888\">No se encontraron redes</p>';});}"
-        "function selNet(s){document.getElementById('ssid').value=s;document.getElementById('password').focus();}"
-        "</script></body></html>");
+    html += F(R"rawhtml(</div>
+        </div>
+
+        <form id="configForm" action="/save" method="POST">
+
+            <!-- Step 1: Connection Type -->
+            <div class="card">
+                <h2><span class="num">1</span> Tipo de Conexion</h2>
+                <div class="conn-type-grid">
+                    <label class="conn-btn" id="btn-ble" onclick="setConn('ble')">
+                        <input type="radio" name="conn_mode" value="ble">
+                        <div class="icon">&#128268;</div>
+                        <div class="title">Bluetooth</div>
+                        <div class="desc">Sin WiFi necesario</div>
+                    </label>
+                    <label class="conn-btn" id="btn-wifi" onclick="setConn('wifi')">
+                        <input type="radio" name="conn_mode" value="wifi">
+                        <div class="icon">&#128246;</div>
+                        <div class="title">WiFi</div>
+                        <div class="desc">Conexion por red</div>
+                    </label>
+                    <label class="conn-btn full-width selected" id="btn-both" onclick="setConn('both')">
+                        <input type="radio" name="conn_mode" value="both" checked>
+                        <div class="icon">&#128268; + &#128246;</div>
+                        <div class="title">Bluetooth + WiFi</div>
+                        <div class="desc">Usa ambos para mayor estabilidad</div>
+                        <span class="badge">RECOMENDADO</span>
+                    </label>
+                </div>
+            </div>
+
+            <!-- Step 2: WiFi Config (shown unless BLE only) -->
+            <div class="card section" id="wifi-section">
+                <h2><span class="num">2</span> Red WiFi</h2>
+                <button type="button" class="scan-btn" onclick="scanNetworks()">
+                    &#128269; Buscar Redes WiFi
+                </button>
+                <div id="networks" class="networks"></div>
+                <label>Nombre de la Red</label>
+                <input type="text" name="ssid" id="ssid" placeholder="Selecciona o escribe tu red">
+                <label>Contrasena</label>
+                <input type="password" name="password" id="password" placeholder="Contrasena del WiFi">
+            </div>
+
+            <!-- BLE Info (shown for BLE mode) -->
+            <div class="card section" id="ble-info">
+                <h2><span class="num">2</span> Conexion Bluetooth</h2>
+                <div class="info-box">
+                    <p><strong>No necesitas configurar nada!</strong></p>
+                    <p>El reloj buscara automaticamente el BitsperBox por Bluetooth cuando se encienda.</p>
+                    <p style="margin-top:10px;color:#666;">Asegurate que el BitsperBox tenga Bluetooth activado.</p>
+                </div>
+            </div>
+
+            <!-- Step 3: Device Name -->
+            <div class="card">
+                <h2><span class="num" id="step-name">3</span> Nombre del Dispositivo</h2>
+                <label>Como identificar este reloj</label>
+                <input type="text" name="device_name" value="Mesero 1" placeholder="Ej: Mesero Juan, Barra, Cocina">
+            </div>
+
+            <!-- Step 4: BitsperBox IP (only for WiFi modes) -->
+            <div class="card section" id="ip-section">
+                <h2><span class="num" id="step-ip">4</span> BitsperBox</h2>
+                <label>IP del BitsperBox (Raspberry Pi)</label>
+                <input type="text" name="bb_ip" id="bb_ip" placeholder="192.168.1.100">
+                <label>Puerto</label>
+                <input type="number" name="bb_port" value="3334">
+            </div>
+
+            <!-- Hidden: Always BitsperBox mode for now -->
+            <input type="hidden" name="mode" value="bitsperbox">
+
+            <button type="submit" class="submit-btn">Guardar Configuracion</button>
+        </form>
+    </div>
+
+    <script>
+        var currentConn = 'both';
+
+        function setConn(mode) {
+            currentConn = mode;
+
+            // Update button styles
+            document.getElementById('btn-ble').className = 'conn-btn' + (mode === 'ble' ? ' selected' : '');
+            document.getElementById('btn-wifi').className = 'conn-btn' + (mode === 'wifi' ? ' selected' : '');
+            document.getElementById('btn-both').className = 'conn-btn full-width' + (mode === 'both' ? ' selected' : '');
+
+            // Update radio
+            document.querySelector('input[value="' + mode + '"]').checked = true;
+
+            // Show/hide sections
+            var showWifi = (mode === 'wifi' || mode === 'both');
+            var showBleInfo = (mode === 'ble');
+            var showIp = (mode === 'wifi' || mode === 'both');
+
+            document.getElementById('wifi-section').className = 'card section' + (showWifi ? ' active' : '');
+            document.getElementById('ble-info').className = 'card section' + (showBleInfo ? ' active' : '');
+            document.getElementById('ip-section').className = 'card section' + (showIp ? ' active' : '');
+
+            // Update step numbers
+            if (mode === 'ble') {
+                document.getElementById('step-name').textContent = '2';
+            } else {
+                document.getElementById('step-name').textContent = '3';
+                document.getElementById('step-ip').textContent = '4';
+            }
+        }
+
+        function scanNetworks() {
+            document.getElementById('networks').innerHTML = '<div style="color:#888;text-align:center;padding:20px;">Buscando redes...</div>';
+            fetch('/scan')
+                .then(r => r.json())
+                .then(nets => {
+                    var h = '';
+                    nets.sort((a, b) => b.rssi - a.rssi);
+                    nets.forEach(n => {
+                        var sig = n.rssi > -50 ? '&#9679;&#9679;&#9679;&#9679;' :
+                                  n.rssi > -70 ? '&#9679;&#9679;&#9679;&#9675;' :
+                                  n.rssi > -80 ? '&#9679;&#9679;&#9675;&#9675;' : '&#9679;&#9675;&#9675;&#9675;';
+                        h += '<div class="network" onclick="selectNet(\'' + n.ssid.replace(/'/g, "\\'") + '\')">';
+                        h += '<span class="name">' + (n.encrypted ? '&#128274; ' : '') + n.ssid + '</span>';
+                        h += '<span class="signal">' + sig + '</span></div>';
+                    });
+                    document.getElementById('networks').innerHTML = h || '<div style="color:#888;text-align:center;padding:20px;">No se encontraron redes</div>';
+                })
+                .catch(e => {
+                    document.getElementById('networks').innerHTML = '<div style="color:#f66;text-align:center;padding:20px;">Error al buscar</div>';
+                });
+        }
+
+        function selectNet(ssid) {
+            document.getElementById('ssid').value = ssid;
+            document.getElementById('password').focus();
+        }
+
+        // Initialize view
+        setConn('both');
+    </script>
+</body>
+</html>
+)rawhtml");
 
     return html;
 }

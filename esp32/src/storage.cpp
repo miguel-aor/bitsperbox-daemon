@@ -38,6 +38,10 @@ bool StorageManager::loadConfig(DeviceConfig& config) {
     String mode = _prefs.getString("mode", "bitsperbox");
     strncpy(config.mode, mode.c_str(), sizeof(config.mode) - 1);
 
+    // Load connection mode (wifi, ble, both)
+    String connMode = _prefs.getString("conn_mode", "both");
+    strncpy(config.connection_mode, connMode.c_str(), sizeof(config.connection_mode) - 1);
+
     // Load BitsperBox settings
     String bbIp = _prefs.getString("bb_ip", "");
     config.bitsperbox_port = _prefs.getUShort("bb_port", 3334);
@@ -68,6 +72,9 @@ bool StorageManager::saveConfig(const DeviceConfig& config) {
 
     // Save mode
     _prefs.putString("mode", config.mode);
+
+    // Save connection mode
+    _prefs.putString("conn_mode", config.connection_mode);
 
     // Save BitsperBox settings
     _prefs.putString("bb_ip", config.bitsperbox_ip);

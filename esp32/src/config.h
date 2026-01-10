@@ -42,6 +42,20 @@
 #define WS_PORT             3334    // BitsperBox WebSocket port
 #define WS_RECONNECT_INTERVAL 5000  // 5 seconds
 
+// ----- BLE Settings -----
+#define BLE_SERVICE_UUID        "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
+#define BLE_NOTIFY_CHAR_UUID    "beb5483e-36e1-4688-b7f5-ea07361b26a8"
+#define BLE_REGISTER_CHAR_UUID  "beb5483e-36e1-4688-b7f5-ea07361b26a9"
+#define BLE_SERVER_NAME         "BitsperBox"
+#define BLE_SCAN_INTERVAL       5000   // Scan every 5 seconds when disconnected
+#define BLE_RECONNECT_DELAY     3000   // Wait 3 seconds before reconnecting
+
+// ----- Connection Mode -----
+// "wifi" = WiFi WebSocket only
+// "ble" = BLE only
+// "both" = WiFi primary, BLE fallback
+#define DEFAULT_CONNECTION_MODE "both"
+
 // ----- Notification Settings -----
 #define NOTIFICATION_TIMEOUT  60000  // Auto-dismiss after 60s
 #define MAX_NOTIFICATIONS     10     // Max queue size

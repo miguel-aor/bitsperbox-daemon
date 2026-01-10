@@ -18,6 +18,7 @@ import { PrintService } from './services/PrintService.js'
 import { DashboardSync } from './services/DashboardSync.js'
 import { WebServer } from './web/server.js'
 import { notificationBroadcaster } from './managers/NotificationBroadcaster.js'
+import { bleBroadcaster } from './managers/BLEBroadcaster.js'
 
 const VERSION = '1.2.0' // Added ESP32 notification support
 const WEB_PORT = parseInt(process.env.WEB_PORT || '3333')
@@ -189,6 +190,10 @@ async function main() {
   // Initialize ESP32 Notification Broadcaster
   // ============================================
 
+  // ============================================
+  // Initialize ESP32 WebSocket Broadcaster
+  // ============================================
+
   logger.info(`Starting ESP32 WebSocket server on port ${ESP32_WS_PORT}...`)
   try {
     await notificationBroadcaster.start()
@@ -196,14 +201,39 @@ async function main() {
 
     // Log device connections
     notificationBroadcaster.on('deviceConnected', (info) => {
-      logger.info(`📱 ESP32 connected: ${info.name} (${info.deviceId})`)
+      logger.info(`📱 ESP32 connected (WiFi): ${info.name} (${info.deviceId})`)
     })
     notificationBroadcaster.on('deviceDisconnected', (deviceId) => {
-      logger.info(`📱 ESP32 disconnected: ${deviceId}`)
+      logger.info(`📱 ESP32 disconnected (WiFi): ${deviceId}`)
     })
   } catch (error) {
     logger.warn('ESP32 WebSocket server failed to start:', error)
-    logger.info('ESP32 notifications will not be available')
+    logger.info('ESP32 WiFi notifications will not be available')
+  }
+
+  // ============================================
+  // Initialize ESP32 BLE Broadcaster
+  // ============================================
+
+  logger.info('Starting ESP32 BLE server...')
+  try {
+    await bleBroadcaster.start()
+    if (bleBroadcaster.isAvailable()) {
+      logger.success('ESP32 BLE server running')
+    } else {
+      logger.info('ESP32 BLE server initialized (advertising will start when Bluetooth is powered on)')
+    }
+
+    // Log device connections
+    bleBroadcaster.on('deviceConnected', (info) => {
+      logger.info(`📱 ESP32 connected (BLE): ${info.name} (${info.deviceId})`)
+    })
+    bleBroadcaster.on('deviceDisconnected', (deviceId) => {
+      logger.info(`📱 ESP32 disconnected (BLE): ${deviceId}`)
+    })
+  } catch (error) {
+    logger.warn('ESP32 BLE server failed to start:', error)
+    logger.info('ESP32 BLE notifications will not be available (bleno library may not be installed)')
   }
 
   // ============================================
@@ -259,7 +289,13 @@ async function main() {
   logger.info('  - Cash reports (X/Z)')
   logger.info('  - Menu Pro notifications (ESP32 devices)')
   logger.info('')
-  logger.info(`ESP32 devices can connect to ws://<this-ip>:${ESP32_WS_PORT}`)
+  logger.info('ESP32 Connection Options:')
+  logger.info(`  - WiFi: ws://<this-ip>:${ESP32_WS_PORT}`)
+  if (bleBroadcaster.isAvailable()) {
+    logger.info('  - BLE:  Bluetooth device "BitsperBox"')
+  } else {
+    logger.info('  - BLE:  Not available (install @abandonware/bleno)')
+  }
   console.log('')
 
   // Handle graceful shutdown
@@ -267,6 +303,7 @@ async function main() {
     console.log('')
     logger.info(`Received ${signal}, shutting down...`)
     notificationBroadcaster.stop()
+    bleBroadcaster.stop()
     await realtimeManager.disconnect()
     await webServer.stop()
     logger.info('Goodbye!')

@@ -2,6 +2,7 @@ import { createClient, SupabaseClient, RealtimeChannel } from '@supabase/supabas
 import { logger } from '../utils/logger.js'
 import type { DeviceConfig, Order, RealtimePayload } from '../types/index.js'
 import { notificationBroadcaster } from './NotificationBroadcaster.js'
+import { bleBroadcaster } from './BLEBroadcaster.js'
 
 // ============================================
 // Types for Realtime Events
@@ -340,15 +341,25 @@ export class RealtimeManager {
 
     logger.info(`🔔 Menu Pro notification: ${notification.type} for table ${notification.table_number}`)
 
-    // Broadcast to all connected ESP32 devices
-    notificationBroadcaster.broadcast({
+    // Create notification payload
+    const payload = {
       id: notification.id,
       table: notification.table_number,
       alert: notification.type,
       message: notification.message || notification.title,
       priority: notification.priority,
       timestamp: Date.now()
-    })
+    }
+
+    // Broadcast to all connected ESP32 devices via WiFi WebSocket
+    notificationBroadcaster.broadcast(payload)
+
+    // Also broadcast via BLE
+    bleBroadcaster.broadcast(payload)
+
+    const wifiCount = notificationBroadcaster.getDeviceCount()
+    const bleCount = bleBroadcaster.getSubscriptionCount()
+    logger.debug(`📡 Notification sent to ${wifiCount} WiFi + ${bleCount} BLE devices`)
   }
 
   // ============================================

@@ -16,6 +16,9 @@ struct DeviceConfig {
     // Mode: "bitsperbox" or "direct"
     char mode[16];
 
+    // Connection mode: "wifi", "ble", "both"
+    char connection_mode[8];
+
     // BitsperBox mode settings
     char bitsperbox_ip[32];
     uint16_t bitsperbox_port;

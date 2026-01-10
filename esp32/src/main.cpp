@@ -16,6 +16,7 @@
 #include "wifi_manager.h"
 #include "web_portal.h"
 #include "websocket_client.h"
+#include "ble_client.h"
 
 // ============================================
 // Global State
@@ -52,6 +53,12 @@ unsigned long btnBootPressTime = 0;
 // Alert blinking
 bool alertBlinkState = false;
 unsigned long lastBlink = 0;
+
+// Connection mode tracking
+bool useWiFi = true;
+bool useBLE = true;
+bool wifiConnected = false;
+bool bleConnected = false;
 
 // ============================================
 // Button Handling
@@ -182,6 +189,25 @@ void enterAPMode() {
     });
 }
 
+void updateConnectionStatus() {
+    // Update display based on any active connection
+    bool anyConnected = wifiConnected || bleConnected;
+
+    if (!hasActiveNotification) {
+        String modeText;
+        if (wifiConnected && bleConnected) {
+            modeText = "WiFi+BLE";
+        } else if (wifiConnected) {
+            modeText = "WiFi";
+        } else if (bleConnected) {
+            modeText = "BLE";
+        } else {
+            modeText = "Desconectado";
+        }
+        Display.showIdle(anyConnected, modeText.c_str());
+    }
+}
+
 void startWebSocketClient() {
     Serial.println("[STATE] Starting WebSocket client");
 
@@ -192,23 +218,52 @@ void startWebSocketClient() {
 
     // Set up connection status callback
     WsClient.onConnectionChange([](bool connected) {
+        wifiConnected = connected;
         if (connected) {
-            Serial.println("[WS] Connected to BitsperBox!");
-            if (!hasActiveNotification) {
-                const char* modeText = strcmp(deviceConfig.mode, "direct") == 0 ? "Supabase" : "BitsperBox";
-                Display.showIdle(true, modeText);
-            }
+            Serial.println("[WS] Connected to BitsperBox via WiFi!");
         } else {
-            Serial.println("[WS] Disconnected from BitsperBox");
-            if (!hasActiveNotification) {
-                const char* modeText = strcmp(deviceConfig.mode, "direct") == 0 ? "Supabase" : "BitsperBox";
-                Display.showIdle(false, modeText);
-            }
+            Serial.println("[WS] Disconnected from BitsperBox (WiFi)");
         }
+        updateConnectionStatus();
     });
 
     // Connect to BitsperBox
     WsClient.begin(deviceConfig.bitsperbox_ip, deviceConfig.bitsperbox_port);
+}
+
+void startBLEClient() {
+    Serial.println("[STATE] Starting BLE client");
+
+    // Initialize BLE
+    BleClient.begin();
+
+    // Set up notification callback - convert BLE notification to standard format
+    BleClient.onNotification([](BLENotificationData& bleNotif) {
+        NotificationData notif;
+        strncpy(notif.table, bleNotif.table, sizeof(notif.table));
+        strncpy(notif.type, bleNotif.type, sizeof(notif.type));
+        strncpy(notif.message, bleNotif.message, sizeof(notif.message));
+        strncpy(notif.priority, bleNotif.priority, sizeof(notif.priority));
+        notif.timestamp = bleNotif.timestamp;
+        showNotification(notif);
+    });
+
+    // Set up connection status callback
+    BleClient.onConnectionChange([](bool connected) {
+        bleConnected = connected;
+        if (connected) {
+            Serial.println("[BLE] Connected to BitsperBox via Bluetooth!");
+        } else {
+            Serial.println("[BLE] Disconnected from BitsperBox (Bluetooth)");
+        }
+        updateConnectionStatus();
+    });
+
+    // Register device with BitsperBox
+    BleClient.registerDevice(Storage.getDeviceId().c_str(), deviceConfig.device_name);
+
+    // Start scanning for BitsperBox
+    BleClient.startScan();
 }
 
 void enterConnectedMode() {
@@ -217,17 +272,29 @@ void enterConnectedMode() {
 
     delay(2000);  // Show connected screen briefly
 
-    // Start WebSocket based on mode
+    // Determine connection modes from config
+    const char* connMode = deviceConfig.connection_mode;
+    useWiFi = (strcmp(connMode, "wifi") == 0 || strcmp(connMode, "both") == 0);
+    useBLE = (strcmp(connMode, "ble") == 0 || strcmp(connMode, "both") == 0);
+
+    Serial.printf("[STATE] Connection mode: %s (WiFi: %s, BLE: %s)\n",
+                  connMode, useWiFi ? "YES" : "NO", useBLE ? "YES" : "NO");
+
+    // Start connection clients based on mode
     if (strcmp(deviceConfig.mode, "bitsperbox") == 0) {
-        startWebSocketClient();
+        if (useWiFi) {
+            startWebSocketClient();
+        }
+        if (useBLE) {
+            startBLEClient();
+        }
     } else {
         // Direct mode - TODO: Implement Supabase client
         Serial.println("[STATE] Direct mode not yet implemented");
     }
 
-    // Show idle screen
-    const char* modeText = strcmp(deviceConfig.mode, "direct") == 0 ? "Supabase" : "BitsperBox";
-    Display.showIdle(false, modeText);
+    // Show idle screen with initial status
+    updateConnectionStatus();
 }
 
 // ============================================
@@ -274,15 +341,31 @@ void setup() {
 
         if (Storage.loadConfig(deviceConfig)) {
             Serial.printf("[INIT] Mode: %s\n", deviceConfig.mode);
+            Serial.printf("[INIT] Connection: %s\n", deviceConfig.connection_mode);
             Serial.printf("[INIT] BitsperBox IP: %s:%d\n",
                           deviceConfig.bitsperbox_ip, deviceConfig.bitsperbox_port);
 
-            // Try to connect to WiFi
+            // Determine connection modes
+            const char* connMode = deviceConfig.connection_mode;
+            bool needWiFi = (strcmp(connMode, "wifi") == 0 || strcmp(connMode, "both") == 0);
+            bool needBLE = (strcmp(connMode, "ble") == 0 || strcmp(connMode, "both") == 0);
+
+            // Try to connect to WiFi if needed
             currentState = STATE_CONNECTING;
-            if (WifiMgr.connect(deviceConfig.wifi_ssid, deviceConfig.wifi_password)) {
+            bool wifiOk = false;
+
+            if (needWiFi) {
+                wifiOk = WifiMgr.connect(deviceConfig.wifi_ssid, deviceConfig.wifi_password);
+                if (!wifiOk) {
+                    Serial.println("[INIT] WiFi connection failed");
+                }
+            }
+
+            // If WiFi is not required, or WiFi succeeded, or BLE is available as fallback
+            if (wifiOk || needBLE || !needWiFi) {
                 enterConnectedMode();
             } else {
-                Serial.println("[INIT] WiFi connection failed, entering AP mode");
+                Serial.println("[INIT] No connection method available, entering AP mode");
                 enterAPMode();
             }
         } else {
@@ -313,11 +396,19 @@ void loop() {
             break;
 
         case STATE_CONNECTED:
-            WifiMgr.checkConnection();
+            // WiFi connection monitoring with auto-reconnect
+            if (useWiFi) {
+                WifiMgr.loop();
+            }
 
-            // WebSocket client loop (for BitsperBox mode)
+            // WebSocket client loop (for BitsperBox mode via WiFi)
             if (strcmp(deviceConfig.mode, "bitsperbox") == 0) {
-                WsClient.loop();
+                if (useWiFi) {
+                    WsClient.loop();
+                }
+                if (useBLE) {
+                    BleClient.loop();
+                }
             }
 
             // Update notification blinking

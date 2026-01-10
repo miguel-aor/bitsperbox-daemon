@@ -216,6 +216,41 @@ void DisplayManager::update() {
     // For any animations or updates
 }
 
+void DisplayManager::showWeakSignal(int rssi) {
+    // Show a small warning banner at the top without clearing the whole screen
+    _display.fillRect(0, 0, LCD_WIDTH, 25, COLOR_WARNING);
+    _display.setTextColor(COLOR_BG);
+    _display.setTextSize(1);
+
+    char msg[32];
+    snprintf(msg, sizeof(msg), "Senal debil: %d dBm", rssi);
+    drawCenteredText(msg, 8, 1, COLOR_BG);
+}
+
+void DisplayManager::showReconnecting(int attempt, int maxAttempts) {
+    clear();
+    drawHeader("RECONECTANDO", COLOR_WARNING);
+
+    _display.setTextSize(1);
+    drawCenteredText("Conexion perdida", 80, 1, COLOR_TEXT);
+
+    char attemptText[32];
+    snprintf(attemptText, sizeof(attemptText), "Intento %d de %d", attempt, maxAttempts);
+    drawCenteredText(attemptText, 120, 1, COLOR_PRIMARY);
+
+    // Progress bar
+    int barWidth = 120;
+    int barHeight = 10;
+    int barX = (LCD_WIDTH - barWidth) / 2;
+    int barY = 160;
+    int progress = (attempt * barWidth) / maxAttempts;
+
+    _display.drawRect(barX, barY, barWidth, barHeight, COLOR_PRIMARY);
+    _display.fillRect(barX + 2, barY + 2, progress - 4, barHeight - 4, COLOR_PRIMARY);
+
+    drawCenteredText("Espere...", 200, 1, 0x7BEF);
+}
+
 // ============================================
 // Private Helper Methods
 // ============================================
@@ -265,4 +300,125 @@ void DisplayManager::drawFooter(const char* left, const char* right) {
         _display.setCursor(LCD_WIDTH - w - 5, y);
         _display.print(right);
     }
+}
+
+// ============================================
+// BLE Status Display Methods
+// ============================================
+
+void DisplayManager::showBLEScanning() {
+    clear();
+    drawHeader("BLUETOOTH", COLOR_INFO);
+
+    // Bluetooth icon (simple representation)
+    int cx = LCD_WIDTH / 2;
+    int cy = 110;
+
+    // Draw a stylized B for Bluetooth
+    _display.fillCircle(cx, cy, 25, COLOR_INFO);
+    _display.setTextColor(COLOR_BG);
+    _display.setTextSize(3);
+    _display.setCursor(cx - 9, cy - 12);
+    _display.print("B");
+
+    // Scanning text
+    drawCenteredText("Buscando", 160, 1, COLOR_TEXT);
+    drawCenteredText("BitsperBox...", 180, 1, COLOR_PRIMARY);
+
+    // Animated dots indicator
+    static int dots = 0;
+    dots = (dots + 1) % 4;
+    char dotStr[5] = "    ";
+    for (int i = 0; i < dots; i++) dotStr[i] = '.';
+    drawCenteredText(dotStr, 210, 2, COLOR_INFO);
+
+    drawFooter("Escaneando", "BLE");
+}
+
+void DisplayManager::showBLEFound(const char* deviceName) {
+    clear();
+    drawHeader("BLE ENCONTRADO", COLOR_SUCCESS);
+
+    // Success checkmark
+    int cx = LCD_WIDTH / 2;
+    int cy = 100;
+    _display.fillCircle(cx, cy, 25, COLOR_SUCCESS);
+    _display.setTextColor(COLOR_BG);
+    _display.setTextSize(2);
+    _display.setCursor(cx - 8, cy - 8);
+    _display.print("OK");
+
+    drawCenteredText("Dispositivo:", 150, 1, 0x7BEF);
+    drawCenteredText(deviceName, 170, 1, COLOR_TEXT);
+
+    drawCenteredText("Conectando...", 210, 1, COLOR_PRIMARY);
+}
+
+void DisplayManager::showBLEConnecting(const char* deviceName) {
+    clear();
+    drawHeader("CONECTANDO BLE", COLOR_WARNING);
+
+    // Bluetooth icon
+    int cx = LCD_WIDTH / 2;
+    int cy = 100;
+    _display.drawCircle(cx, cy, 25, COLOR_INFO);
+    _display.drawCircle(cx, cy, 20, COLOR_INFO);
+    _display.setTextColor(COLOR_INFO);
+    _display.setTextSize(2);
+    _display.setCursor(cx - 6, cy - 8);
+    _display.print("B");
+
+    drawCenteredText("Conectando a:", 150, 1, 0x7BEF);
+    drawCenteredText(deviceName, 170, 1, COLOR_TEXT);
+
+    // Progress indicator
+    static int progress = 0;
+    progress = (progress + 20) % 120;
+    int barX = (LCD_WIDTH - 120) / 2;
+    _display.drawRect(barX, 200, 120, 10, COLOR_INFO);
+    _display.fillRect(barX + 2, 202, progress, 6, COLOR_INFO);
+
+    drawFooter("Espere...", "");
+}
+
+void DisplayManager::showBLEStatus(const char* status, const char* detail) {
+    clear();
+    drawHeader("BLUETOOTH", COLOR_INFO);
+
+    // Status icon based on state
+    int cx = LCD_WIDTH / 2;
+    int cy = 110;
+
+    if (strcmp(status, "NO_ADAPTER") == 0 ||
+        strcmp(status, "ERROR") == 0) {
+        // Error X
+        _display.fillCircle(cx, cy, 25, COLOR_DANGER);
+        _display.setTextColor(COLOR_BG);
+        _display.setTextSize(3);
+        _display.setCursor(cx - 9, cy - 12);
+        _display.print("X");
+    } else if (strcmp(status, "CONNECTED") == 0) {
+        // Connected checkmark
+        _display.fillCircle(cx, cy, 25, COLOR_SUCCESS);
+        _display.setTextColor(COLOR_BG);
+        _display.setTextSize(2);
+        _display.setCursor(cx - 8, cy - 8);
+        _display.print("OK");
+    } else {
+        // Default Bluetooth symbol
+        _display.drawCircle(cx, cy, 25, COLOR_INFO);
+        _display.setTextColor(COLOR_INFO);
+        _display.setTextSize(2);
+        _display.setCursor(cx - 6, cy - 8);
+        _display.print("B");
+    }
+
+    // Status text
+    drawCenteredText(status, 160, 1, COLOR_TEXT);
+
+    if (detail != nullptr && strlen(detail) > 0) {
+        drawCenteredText(detail, 185, 1, 0x7BEF);
+    }
+
+    drawFooter("BLE", "v" FIRMWARE_VERSION);
 }

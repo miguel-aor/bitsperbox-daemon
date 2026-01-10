@@ -97,6 +97,16 @@ public:
     void clearNotification();
     void blinkAlert(bool state);
 
+    // Status indicators
+    void showWeakSignal(int rssi);
+    void showReconnecting(int attempt, int maxAttempts);
+
+    // BLE Status
+    void showBLEScanning();
+    void showBLEFound(const char* deviceName);
+    void showBLEConnecting(const char* deviceName);
+    void showBLEStatus(const char* status, const char* detail = nullptr);
+
     // Utility
     void update();
     LGFX* getLGFX() { return &_display; }
