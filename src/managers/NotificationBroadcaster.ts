@@ -6,7 +6,7 @@
  */
 
 import { WebSocketServer, WebSocket } from 'ws';
-import { logger } from '../utils/logger';
+import { logger } from '../utils/logger.js';
 import { EventEmitter } from 'events';
 
 interface ConnectedDevice {
