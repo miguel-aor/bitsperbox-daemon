@@ -1,6 +1,7 @@
 import { createClient, SupabaseClient, RealtimeChannel } from '@supabase/supabase-js'
 import { logger } from '../utils/logger.js'
 import type { DeviceConfig, Order, RealtimePayload } from '../types/index.js'
+import { notificationBroadcaster } from './NotificationBroadcaster.js'
 
 // ============================================
 // Types for Realtime Events
@@ -19,6 +20,18 @@ interface CashReport {
   restaurant_id: string
   report_type: 'x_report' | 'z_report'
   print_requested_at: string | null
+}
+
+interface MenuProNotification {
+  id: string
+  restaurant_id: string
+  table_number: string
+  type: 'waiter_called' | 'bill_ready' | 'payment_confirmed' | 'order_status' | 'kitchen_update' | 'table_ready'
+  priority: 'low' | 'medium' | 'high' | 'urgent'
+  title: string
+  message: string
+  status: 'pending' | 'sent' | 'delivered' | 'read'
+  created_at: string
 }
 
 interface ClaimResult {
@@ -290,6 +303,52 @@ export class RealtimeManager {
         }
       })
     this.channels.push(reportsChannel)
+
+    // 4. Listen for menu_pro_notifications (for ESP32 devices)
+    const notificationsChannel = this.supabase
+      .channel(`bitsperbox-notifications-${this.config.restaurantId}`)
+      .on(
+        'postgres_changes' as 'system',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'menu_pro_notifications',
+          filter: `restaurant_id=eq.${this.config.restaurantId}`,
+        } as any,
+        async (payload: RealtimePayload<MenuProNotification>) => {
+          await this.handleMenuProNotification(payload.new)
+        }
+      )
+      .subscribe((status: string) => {
+        if (status === 'SUBSCRIBED') {
+          logger.success('Subscribed to menu_pro_notifications channel (for ESP32 devices)')
+        }
+      })
+    this.channels.push(notificationsChannel)
+  }
+
+  // ============================================
+  // ESP32 Notification Handling
+  // ============================================
+
+  private async handleMenuProNotification(notification: MenuProNotification) {
+    // Only process types relevant for ESP32 devices
+    const espTypes = ['waiter_called', 'bill_ready', 'payment_confirmed']
+    if (!espTypes.includes(notification.type)) {
+      return
+    }
+
+    logger.info(`🔔 Menu Pro notification: ${notification.type} for table ${notification.table_number}`)
+
+    // Broadcast to all connected ESP32 devices
+    notificationBroadcaster.broadcast({
+      id: notification.id,
+      table: notification.table_number,
+      alert: notification.type,
+      message: notification.message || notification.title,
+      priority: notification.priority,
+      timestamp: Date.now()
+    })
   }
 
   // ============================================

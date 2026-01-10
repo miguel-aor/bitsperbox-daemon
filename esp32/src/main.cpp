@@ -10,9 +10,12 @@
  */
 
 #include <Arduino.h>
-#include <WiFi.h>
 #include "config.h"
 #include "display.h"
+#include "storage.h"
+#include "wifi_manager.h"
+#include "web_portal.h"
+#include "websocket_client.h"
 
 // ============================================
 // Global State
@@ -27,12 +30,28 @@ enum DeviceState {
 };
 
 DeviceState currentState = STATE_BOOT;
+DeviceConfig deviceConfig;
 unsigned long lastUpdate = 0;
+bool shouldRestart = false;
+unsigned long restartTime = 0;
+
+// Notification state
+bool hasActiveNotification = false;
+unsigned long notificationTime = 0;
+NotificationData currentNotification;
 
 // Button state
-bool btnUserPressed = false;
-bool btnBootPressed = false;
+volatile bool btnUserPressed = false;
+volatile bool btnBootPressed = false;
 unsigned long btnUserPressTime = 0;
+unsigned long btnBootPressTime = 0;
+
+// Long press detection
+#define LONG_PRESS_TIME 3000  // 3 seconds for factory reset
+
+// Alert blinking
+bool alertBlinkState = false;
+unsigned long lastBlink = 0;
 
 // ============================================
 // Button Handling
@@ -45,6 +64,7 @@ void IRAM_ATTR onUserButtonPress() {
 
 void IRAM_ATTR onBootButtonPress() {
     btnBootPressed = true;
+    btnBootPressTime = millis();
 }
 
 void setupButtons() {
@@ -57,141 +77,157 @@ void setupButtons() {
     Serial.println("[BTN] Buttons initialized");
 }
 
-// ============================================
-// WiFi Functions
-// ============================================
-
-bool connectToWiFi(const char* ssid, const char* password) {
-    Serial.printf("[WiFi] Connecting to %s...\n", ssid);
-    Display.showConnecting(ssid);
-
-    WiFi.mode(WIFI_STA);
-    WiFi.begin(ssid, password);
-
-    unsigned long startTime = millis();
-    while (WiFi.status() != WL_CONNECTED) {
-        if (millis() - startTime > WIFI_CONNECT_TIMEOUT) {
-            Serial.println("[WiFi] Connection timeout!");
-            return false;
-        }
-        delay(500);
-        Serial.print(".");
-    }
-
-    Serial.println();
-    Serial.printf("[WiFi] Connected! IP: %s\n", WiFi.localIP().toString().c_str());
-
-    Display.showConnected(ssid, WiFi.localIP().toString().c_str());
-    delay(2000);
-
-    return true;
-}
-
-void startAPMode() {
-    // Generate unique AP name from MAC
-    uint8_t mac[6];
-    WiFi.macAddress(mac);
-    char apSSID[32];
-    snprintf(apSSID, sizeof(apSSID), "%s%02X%02X", WIFI_AP_SSID_PREFIX, mac[4], mac[5]);
-
-    Serial.printf("[WiFi] Starting AP Mode: %s\n", apSSID);
-
-    WiFi.mode(WIFI_AP);
-    WiFi.softAP(apSSID, WIFI_AP_PASSWORD);
-
-    Display.showAPMode(apSSID, WIFI_AP_PASSWORD);
-    currentState = STATE_AP_MODE;
-}
-
-// ============================================
-// Test Functions
-// ============================================
-
-void testDisplay() {
-    Serial.println("[TEST] Display test starting...");
-
-    // Test 1: Splash screen
-    Display.showSplash();
-    delay(2000);
-
-    // Test 2: Connecting animation
-    Display.showConnecting("TestNetwork");
-    delay(2000);
-
-    // Test 3: Connected screen
-    Display.showConnected("TestNetwork", "192.168.1.100");
-    delay(2000);
-
-    // Test 4: Idle screen
-    Display.showIdle(true, "BitsperBox");
-    delay(2000);
-
-    // Test 5: Notification - Waiter call
-    Display.showNotification("5", "waiter_called",
-                             "El cliente necesita atencion", "medium");
-    delay(3000);
-
-    // Test 6: Notification - Bill request
-    Display.showNotification("3", "bill_ready",
-                             "Quiero pagar con tarjeta", "high");
-    delay(3000);
-
-    // Test 7: Notification - Urgent
-    Display.showNotification("1", "waiter_called",
-                             "URGENTE! Necesito ayuda!", "urgent");
-
-    // Blink test
-    for (int i = 0; i < 6; i++) {
-        Display.blinkAlert(i % 2 == 0);
-        delay(500);
-    }
+void dismissNotification() {
+    hasActiveNotification = false;
     Display.blinkAlert(false);
-    delay(2000);
-
-    // Test 8: AP Mode screen
-    Display.showAPMode("BitsperWatch-A1B2", "bitsper123");
-    delay(2000);
-
-    // Test 9: Error screen
-    Display.showError("No se pudo conectar");
-    delay(2000);
-
-    Serial.println("[TEST] Display test complete!");
+    const char* modeText = strcmp(deviceConfig.mode, "direct") == 0 ? "Supabase" : "BitsperBox";
+    Display.showIdle(WsClient.isConnected(), modeText);
+    Serial.println("[NOTIF] Notification dismissed");
 }
 
-void runDemoMode() {
-    Serial.println("[DEMO] Running demo mode...");
+void handleButtons() {
+    // USER button - dismiss notification
+    if (btnUserPressed) {
+        btnUserPressed = false;
+        Serial.println("[BTN] USER button pressed");
 
-    // Show idle
-    Display.showIdle(true, "Demo Mode");
-
-    // Simulate notifications every 5 seconds
-    static unsigned long lastNotif = 0;
-    static int notifIndex = 0;
-
-    if (millis() - lastNotif > 5000) {
-        lastNotif = millis();
-
-        const char* tables[] = {"1", "3", "5", "7", "12"};
-        const char* types[] = {"waiter_called", "bill_ready", "waiter_called", "payment_confirmed", "waiter_called"};
-        const char* messages[] = {
-            "Necesito mas servilletas",
-            "Queremos la cuenta por favor",
-            "Pueden traer la carta de postres?",
-            "Pago confirmado - Gracias!",
-            "Urgente - problema con el pedido"
-        };
-        const char* priorities[] = {"medium", "high", "low", "medium", "urgent"};
-
-        Display.showNotification(
-            tables[notifIndex],
-            types[notifIndex],
-            messages[notifIndex],
-            priorities[notifIndex]
-        );
-
-        notifIndex = (notifIndex + 1) % 5;
+        if (hasActiveNotification) {
+            dismissNotification();
+        }
     }
+
+    // BOOT button - check for long press to factory reset
+    if (btnBootPressed) {
+        // Check if still held
+        if (digitalRead(BTN_BOOT) == LOW) {
+            unsigned long holdTime = millis() - btnBootPressTime;
+
+            if (holdTime > LONG_PRESS_TIME) {
+                btnBootPressed = false;
+                Serial.println("[BTN] Long press detected - Factory Reset!");
+
+                Display.showError("Factory Reset...");
+                delay(1000);
+
+                Storage.clearConfig();
+                ESP.restart();
+            }
+        } else {
+            btnBootPressed = false;
+            Serial.println("[BTN] BOOT button released");
+
+            // Short press - show connection info
+            if (currentState == STATE_CONNECTED && !hasActiveNotification) {
+                Display.showConnected(WifiMgr.getSSID().c_str(), WifiMgr.getIPAddress().c_str());
+                delay(3000);
+                const char* modeText = strcmp(deviceConfig.mode, "direct") == 0 ? "Supabase" : "BitsperBox";
+                Display.showIdle(WsClient.isConnected(), modeText);
+            }
+        }
+    }
+}
+
+// ============================================
+// Notification Handling
+// ============================================
+
+void showNotification(NotificationData& notif) {
+    hasActiveNotification = true;
+    notificationTime = millis();
+    currentNotification = notif;
+
+    Display.showNotification(notif.table, notif.type, notif.message, notif.priority);
+
+    Serial.printf("[NOTIF] Showing: Table %s - %s (%s)\n",
+                  notif.table, notif.type, notif.priority);
+}
+
+void updateNotificationBlink() {
+    if (!hasActiveNotification) return;
+
+    // Only blink for urgent/high priority
+    bool shouldBlink = (strcmp(currentNotification.priority, "urgent") == 0 ||
+                        strcmp(currentNotification.priority, "high") == 0);
+
+    if (!shouldBlink) return;
+
+    if (millis() - lastBlink > ALERT_BLINK_INTERVAL) {
+        lastBlink = millis();
+        alertBlinkState = !alertBlinkState;
+        Display.blinkAlert(alertBlinkState);
+    }
+
+    // Auto-dismiss after timeout
+    if (millis() - notificationTime > NOTIFICATION_TIMEOUT) {
+        Serial.println("[NOTIF] Auto-dismissing after timeout");
+        dismissNotification();
+    }
+}
+
+// ============================================
+// State Machine
+// ============================================
+
+void enterAPMode() {
+    Serial.println("[STATE] Entering AP Mode");
+    currentState = STATE_AP_MODE;
+
+    WifiMgr.startAPMode();
+    Portal.begin();
+
+    Portal.onConfigSaved([]() {
+        Serial.println("[STATE] Config saved, scheduling restart...");
+        shouldRestart = true;
+        restartTime = millis() + 3000;
+    });
+}
+
+void startWebSocketClient() {
+    Serial.println("[STATE] Starting WebSocket client");
+
+    // Set up notification callback
+    WsClient.onNotification([](NotificationData& notif) {
+        showNotification(notif);
+    });
+
+    // Set up connection status callback
+    WsClient.onConnectionChange([](bool connected) {
+        if (connected) {
+            Serial.println("[WS] Connected to BitsperBox!");
+            if (!hasActiveNotification) {
+                const char* modeText = strcmp(deviceConfig.mode, "direct") == 0 ? "Supabase" : "BitsperBox";
+                Display.showIdle(true, modeText);
+            }
+        } else {
+            Serial.println("[WS] Disconnected from BitsperBox");
+            if (!hasActiveNotification) {
+                const char* modeText = strcmp(deviceConfig.mode, "direct") == 0 ? "Supabase" : "BitsperBox";
+                Display.showIdle(false, modeText);
+            }
+        }
+    });
+
+    // Connect to BitsperBox
+    WsClient.begin(deviceConfig.bitsperbox_ip, deviceConfig.bitsperbox_port);
+}
+
+void enterConnectedMode() {
+    Serial.println("[STATE] Entering Connected Mode");
+    currentState = STATE_CONNECTED;
+
+    delay(2000);  // Show connected screen briefly
+
+    // Start WebSocket based on mode
+    if (strcmp(deviceConfig.mode, "bitsperbox") == 0) {
+        startWebSocketClient();
+    } else {
+        // Direct mode - TODO: Implement Supabase client
+        Serial.println("[STATE] Direct mode not yet implemented");
+    }
+
+    // Show idle screen
+    const char* modeText = strcmp(deviceConfig.mode, "direct") == 0 ? "Supabase" : "BitsperBox";
+    Display.showIdle(false, modeText);
 }
 
 // ============================================
@@ -201,7 +237,7 @@ void runDemoMode() {
 void setup() {
     // Initialize Serial
     Serial.begin(115200);
-    delay(1000);  // Give serial time to initialize
+    delay(1000);
 
     Serial.println();
     Serial.println("========================================");
@@ -209,70 +245,90 @@ void setup() {
     Serial.println("   Firmware v" FIRMWARE_VERSION);
     Serial.println("========================================");
 
-    // Initialize display
+    // Initialize display first for visual feedback
     Serial.println("[INIT] Initializing display...");
     Display.begin();
     Display.showSplash();
-    delay(1500);
+
+    // Initialize storage
+    Serial.println("[INIT] Initializing storage...");
+    Storage.begin();
 
     // Initialize buttons
     setupButtons();
 
-    // Print chip info
+    // Initialize WiFi manager
+    WifiMgr.begin();
+
+    // Print device info
+    Serial.printf("[INFO] Device ID: %s\n", Storage.getDeviceId().c_str());
     Serial.printf("[INFO] Chip: %s Rev %d\n", ESP.getChipModel(), ESP.getChipRevision());
     Serial.printf("[INFO] Flash: %d MB\n", ESP.getFlashChipSize() / 1024 / 1024);
     Serial.printf("[INFO] Free heap: %d bytes\n", ESP.getFreeHeap());
 
-    // For now, run display test
-    // In production, this would check for saved WiFi credentials
-    // and connect or start AP mode
-    Serial.println("[INIT] Running display test...");
-    testDisplay();
+    delay(1500);
 
-    // Show idle screen after test
-    Display.showIdle(false, "Sin config");
-    currentState = STATE_BOOT;
+    // Check if configured
+    if (Storage.isConfigured()) {
+        Serial.println("[INIT] Configuration found, loading...");
 
-    Serial.println("[INIT] Setup complete! Press USER button to run demo.");
+        if (Storage.loadConfig(deviceConfig)) {
+            Serial.printf("[INIT] Mode: %s\n", deviceConfig.mode);
+            Serial.printf("[INIT] BitsperBox IP: %s:%d\n",
+                          deviceConfig.bitsperbox_ip, deviceConfig.bitsperbox_port);
+
+            // Try to connect to WiFi
+            currentState = STATE_CONNECTING;
+            if (WifiMgr.connect(deviceConfig.wifi_ssid, deviceConfig.wifi_password)) {
+                enterConnectedMode();
+            } else {
+                Serial.println("[INIT] WiFi connection failed, entering AP mode");
+                enterAPMode();
+            }
+        } else {
+            enterAPMode();
+        }
+    } else {
+        Serial.println("[INIT] No configuration, entering AP mode");
+        enterAPMode();
+    }
+
+    Serial.println("[INIT] Setup complete!");
 }
 
 void loop() {
-    // Handle USER button
-    if (btnUserPressed) {
-        btnUserPressed = false;
-        Serial.println("[BTN] USER button pressed!");
-
-        // Run demo notification
-        static int demoIndex = 0;
-        const char* tables[] = {"1", "5", "8", "3", "12"};
-        const char* types[] = {"waiter_called", "bill_ready", "waiter_called", "payment_confirmed", "waiter_called"};
-        const char* messages[] = {
-            "Necesito mas agua por favor",
-            "La cuenta por favor!",
-            "Pueden venir a tomar la orden?",
-            "Pago con tarjeta confirmado",
-            "Urgente - ayuda!"
-        };
-        const char* priorities[] = {"low", "high", "medium", "medium", "urgent"};
-
-        Display.showNotification(
-            tables[demoIndex],
-            types[demoIndex],
-            messages[demoIndex],
-            priorities[demoIndex]
-        );
-
-        demoIndex = (demoIndex + 1) % 5;
+    // Handle scheduled restart
+    if (shouldRestart && millis() > restartTime) {
+        Serial.println("[SYSTEM] Restarting...");
+        ESP.restart();
     }
 
-    // Handle BOOT button - return to idle
-    if (btnBootPressed) {
-        btnBootPressed = false;
-        Serial.println("[BTN] BOOT button pressed - returning to idle");
-        Display.showIdle(false, "Demo Mode");
+    // Handle buttons
+    handleButtons();
+
+    // State-specific updates
+    switch (currentState) {
+        case STATE_AP_MODE:
+            Portal.handleClient();
+            break;
+
+        case STATE_CONNECTED:
+            WifiMgr.checkConnection();
+
+            // WebSocket client loop (for BitsperBox mode)
+            if (strcmp(deviceConfig.mode, "bitsperbox") == 0) {
+                WsClient.loop();
+            }
+
+            // Update notification blinking
+            updateNotificationBlink();
+            break;
+
+        default:
+            break;
     }
 
-    // Update display (for animations)
+    // Update display animations
     Display.update();
 
     delay(10);

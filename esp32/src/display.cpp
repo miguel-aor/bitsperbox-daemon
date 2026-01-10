@@ -239,10 +239,7 @@ void DisplayManager::drawCenteredText(const char* text, int y, int size, uint16_
     _display.setTextSize(size);
     _display.setTextColor(color);
 
-    int16_t x1, y1;
-    uint16_t w, h;
-    _display.getTextBounds(text, 0, 0, &x1, &y1, &w, &h);
-
+    int w = _display.textWidth(text);
     int x = (LCD_WIDTH - w) / 2;
     _display.setCursor(x, y);
     _display.print(text);
@@ -264,9 +261,7 @@ void DisplayManager::drawFooter(const char* left, const char* right) {
     }
 
     if (strlen(right) > 0) {
-        int16_t x1, y1;
-        uint16_t w, h;
-        _display.getTextBounds(right, 0, 0, &x1, &y1, &w, &h);
+        int w = _display.textWidth(right);
         _display.setCursor(LCD_WIDTH - w - 5, y);
         _display.print(right);
     }

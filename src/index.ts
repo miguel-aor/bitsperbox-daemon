@@ -17,9 +17,11 @@ import { RealtimeManager } from './managers/RealtimeManager.js'
 import { PrintService } from './services/PrintService.js'
 import { DashboardSync } from './services/DashboardSync.js'
 import { WebServer } from './web/server.js'
+import { notificationBroadcaster } from './managers/NotificationBroadcaster.js'
 
-const VERSION = '1.1.0' // Updated for multi-printer support
+const VERSION = '1.2.0' // Added ESP32 notification support
 const WEB_PORT = parseInt(process.env.WEB_PORT || '3333')
+const ESP32_WS_PORT = parseInt(process.env.ESP32_WS_PORT || '3334')
 
 async function main() {
   // Display banner
@@ -184,6 +186,27 @@ async function main() {
   logger.info(`PrintService mode: ${printService.getStatus().mode}`)
 
   // ============================================
+  // Initialize ESP32 Notification Broadcaster
+  // ============================================
+
+  logger.info(`Starting ESP32 WebSocket server on port ${ESP32_WS_PORT}...`)
+  try {
+    await notificationBroadcaster.start()
+    logger.success(`ESP32 WebSocket server running on port ${ESP32_WS_PORT}`)
+
+    // Log device connections
+    notificationBroadcaster.on('deviceConnected', (info) => {
+      logger.info(`📱 ESP32 connected: ${info.name} (${info.deviceId})`)
+    })
+    notificationBroadcaster.on('deviceDisconnected', (deviceId) => {
+      logger.info(`📱 ESP32 disconnected: ${deviceId}`)
+    })
+  } catch (error) {
+    logger.warn('ESP32 WebSocket server failed to start:', error)
+    logger.info('ESP32 notifications will not be available')
+  }
+
+  // ============================================
   // Initialize Realtime Manager
   // ============================================
 
@@ -234,12 +257,16 @@ async function main() {
   logger.info('  - Order additions')
   logger.info('  - Customer tickets')
   logger.info('  - Cash reports (X/Z)')
+  logger.info('  - Menu Pro notifications (ESP32 devices)')
+  logger.info('')
+  logger.info(`ESP32 devices can connect to ws://<this-ip>:${ESP32_WS_PORT}`)
   console.log('')
 
   // Handle graceful shutdown
   const shutdown = async (signal: string) => {
     console.log('')
     logger.info(`Received ${signal}, shutting down...`)
+    notificationBroadcaster.stop()
     await realtimeManager.disconnect()
     await webServer.stop()
     logger.info('Goodbye!')
