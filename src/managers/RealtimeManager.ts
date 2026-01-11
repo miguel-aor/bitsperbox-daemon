@@ -78,6 +78,7 @@ export class RealtimeManager {
   private processedOrderIds: Set<string> = new Set()
   private processedTicketIds: Set<string> = new Set()
   private processedCustomerTicketOrderIds: Set<string> = new Set()
+  private processedReprintKeys: Set<string> = new Set()  // For deduplicating reprints by ticket_id + print_requested_at
   private ordersProcessed: number = 0
   private lastOrderTime: Date | null = null
   private realtimeStatus: string = 'disconnected'
@@ -611,10 +612,28 @@ export class RealtimeManager {
   }
 
   private async handleReprintTicket(ticket: OrderTicket) {
+    // If this ticket wasn't processed by INSERT handler yet, skip
+    // (The INSERT handler will handle it, this UPDATE is likely just setting print_requested_at)
+    if (!this.processedTicketIds.has(ticket.id)) {
+      logger.debug(`Reprint skipped - ticket ${ticket.id} not yet processed by INSERT handler`)
+      return
+    }
+
+    // Deduplicate by ticket_id + print_requested_at
+    const reprintKey = `${ticket.id}-${ticket.print_requested_at}`
+    if (this.processedReprintKeys.has(reprintKey)) {
+      logger.debug(`Reprint ${reprintKey} already processed, skipping`)
+      return
+    }
+    this.processedReprintKeys.add(reprintKey)
+
+    // Clean up old reprint keys
+    if (this.processedReprintKeys.size > 100) {
+      const keys = Array.from(this.processedReprintKeys)
+      this.processedReprintKeys = new Set(keys.slice(-50))
+    }
+
     logger.info(`🔄 Reprint requested for ticket ${ticket.id} (order: ${ticket.order_id})`)
-    // Remove from processed sets to allow reprint
-    this.processedTicketIds.delete(ticket.id)
-    this.processedCustomerTicketOrderIds.delete(ticket.order_id)
     await this.handleNewCustomerTicket(ticket, true)
   }
 
