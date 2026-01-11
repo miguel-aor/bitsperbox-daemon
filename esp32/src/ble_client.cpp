@@ -346,7 +346,21 @@ bool BitsperBoxBLEClient::connectToServer() {
         return false;
     }
 
-    Serial.println("[BLE] Connected, discovering services...");
+    Serial.println("[BLE] Connected, negotiating MTU...");
+
+    // Request larger MTU for longer messages (notifications can be ~200 bytes)
+    uint16_t mtu = _pClient->getMTU();
+    Serial.printf("[BLE] Current MTU: %d\n", mtu);
+
+    // Try to set a larger MTU (512 is max for BLE 4.2+)
+    if (mtu < 256) {
+        _pClient->setMTU(256);
+        delay(100);  // Give time for MTU negotiation
+        mtu = _pClient->getMTU();
+        Serial.printf("[BLE] Negotiated MTU: %d\n", mtu);
+    }
+
+    Serial.println("[BLE] Discovering services...");
 
     // Get service
     BLERemoteService* pRemoteService = _pClient->getService(serviceUUID);
