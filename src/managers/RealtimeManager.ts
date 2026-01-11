@@ -447,7 +447,20 @@ export class RealtimeManager {
   // ============================================
 
   private async handleNewOrder(order: Order) {
-    logger.info(`📦 New order received: #${order.order_number}`)
+    // Skip if already processed (deduplication for multiple Realtime events)
+    if (this.processedOrderIds.has(order.id)) {
+      logger.debug(`Order ${order.id} already processed, skipping`)
+      return
+    }
+    this.processedOrderIds.add(order.id)
+
+    // Clean up old processed IDs (keep last 100)
+    if (this.processedOrderIds.size > 100) {
+      const ids = Array.from(this.processedOrderIds)
+      this.processedOrderIds = new Set(ids.slice(-50))
+    }
+
+    logger.info(`📦 New order received: #${order.order_number} (${order.id})`)
 
     // Try to claim the print job
     const claim = await this.claimPrintJob({
