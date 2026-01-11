@@ -37,11 +37,26 @@ class MyAdvertisedDeviceCallbacks : public BLEAdvertisedDeviceCallbacks {
     void onResult(BLEAdvertisedDevice advertisedDevice) override {
         // Log all found devices for debugging
         String name = advertisedDevice.haveName() ? advertisedDevice.getName().c_str() : "(sin nombre)";
-        Serial.printf("[BLE] Encontrado: %s - %s\n",
-                     name.c_str(),
-                     advertisedDevice.getAddress().toString().c_str());
+        String addr = advertisedDevice.getAddress().toString().c_str();
+        Serial.printf("[BLE] Encontrado: %s - %s\n", name.c_str(), addr.c_str());
 
-        // Check if this is BitsperBox by service UUID
+        // First priority: Check if this matches the configured MAC address
+        const char* targetAddr = BleClient.getTargetAddress();
+        if (targetAddr != nullptr && strlen(targetAddr) > 0) {
+            // Compare addresses (case insensitive)
+            String targetLower = String(targetAddr);
+            targetLower.toLowerCase();
+            String foundLower = addr;
+            foundLower.toLowerCase();
+
+            if (targetLower == foundLower) {
+                Serial.printf("[BLE] *** BitsperBox encontrado por direccion MAC configurada! ***\n");
+                BleClient.handleDeviceFound(&advertisedDevice);
+                return;
+            }
+        }
+
+        // Second priority: Check by service UUID
         if (advertisedDevice.haveServiceUUID() &&
             advertisedDevice.isAdvertisingService(serviceUUID)) {
             Serial.printf("[BLE] *** BitsperBox encontrado por UUID! ***\n");
@@ -49,7 +64,7 @@ class MyAdvertisedDeviceCallbacks : public BLEAdvertisedDeviceCallbacks {
             return;
         }
 
-        // Also check by name
+        // Third priority: Check by name
         if (advertisedDevice.haveName() &&
             advertisedDevice.getName() == BLE_SERVER_NAME) {
             Serial.printf("[BLE] *** BitsperBox encontrado por nombre! ***\n");
@@ -113,8 +128,7 @@ void BitsperBoxBLEClient::loop() {
         Display.showBLEConnecting("BitsperBox");
         if (connectToServer()) {
             Serial.println("[BLE] Connected to BitsperBox!");
-            Display.showBLEStatus("CONNECTED", "BitsperBox");
-            delay(1000);
+            // Note: Display will be updated by onConnectionChange callback
         } else {
             Serial.println("[BLE] Failed to connect, will retry...");
             Display.showBLEStatus("ERROR", "Conexion fallida");
@@ -207,6 +221,17 @@ BLEState BitsperBoxBLEClient::getState() {
     return _state;
 }
 
+void BitsperBoxBLEClient::setTargetAddress(const char* address) {
+    if (address != nullptr) {
+        strncpy(_targetAddress, address, sizeof(_targetAddress) - 1);
+        Serial.printf("[BLE] Target address set to: %s\n", _targetAddress);
+    }
+}
+
+const char* BitsperBoxBLEClient::getTargetAddress() {
+    return _targetAddress;
+}
+
 void BitsperBoxBLEClient::registerDevice(const char* deviceId, const char* deviceName) {
     strncpy(_deviceId, deviceId, sizeof(_deviceId) - 1);
     strncpy(_deviceName, deviceName, sizeof(_deviceName) - 1);
@@ -239,6 +264,12 @@ void BitsperBoxBLEClient::onConnectionChange(std::function<void(bool)> callback)
 // ============================================
 
 void BitsperBoxBLEClient::handleDeviceFound(BLEAdvertisedDevice* device) {
+    // Ignore if already connected, connecting, or connection pending
+    if (_connected || _state == BLE_STATE_CONNECTING || _doConnect) {
+        Serial.println("[BLE] Ignoring device found - already connected/connecting");
+        return;
+    }
+
     // Stop scanning
     _pBLEScan->stop();
     _state = BLE_STATE_IDLE;

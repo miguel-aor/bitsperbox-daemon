@@ -29,10 +29,12 @@ private:
     void handleRoot();
     void handleSave();
     void handleScan();
+    void handleScanBLE();
     void handleNotFound();
 
     String generateHTML();
     String scanNetworks();
+    String scanBLEDevices();
 };
 
 extern WebPortal Portal;

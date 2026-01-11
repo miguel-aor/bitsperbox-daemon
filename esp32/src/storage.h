@@ -23,6 +23,10 @@ struct DeviceConfig {
     char bitsperbox_ip[32];
     uint16_t bitsperbox_port;
 
+    // BLE settings (for connecting to BitsperBox via Bluetooth)
+    char ble_server_address[20];  // MAC address: "AA:BB:CC:DD:EE:FF"
+    char ble_server_name[32];     // Display name of selected BLE device
+
     // Direct mode settings (Supabase)
     char supabase_url[128];
     char supabase_key[256];

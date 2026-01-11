@@ -1,8 +1,15 @@
 #include "web_portal.h"
 #include "wifi_manager.h"
 #include "config.h"
+#include <BLEDevice.h>
+#include <BLEScan.h>
+#include <BLEAdvertisedDevice.h>
 
 WebPortal Portal;
+
+// BLE scan results storage
+static String bleDevicesJson = "[]";
+static bool bleScanComplete = false;
 
 void WebPortal::begin() {
     if (_running) return;
@@ -17,6 +24,7 @@ void WebPortal::begin() {
     _server->on("/", HTTP_GET, [this]() { handleRoot(); });
     _server->on("/save", HTTP_POST, [this]() { handleSave(); });
     _server->on("/scan", HTTP_GET, [this]() { handleScan(); });
+    _server->on("/scanble", HTTP_GET, [this]() { handleScanBLE(); });
     _server->onNotFound([this]() { handleNotFound(); });
 
     _server->begin();
@@ -90,6 +98,14 @@ void WebPortal::handleSave() {
     config.bitsperbox_port = _server->hasArg("bb_port") ?
         _server->arg("bb_port").toInt() : 3334;
 
+    // BLE settings
+    if (_server->hasArg("ble_addr")) {
+        strncpy(config.ble_server_address, _server->arg("ble_addr").c_str(), sizeof(config.ble_server_address) - 1);
+    }
+    if (_server->hasArg("ble_name")) {
+        strncpy(config.ble_server_name, _server->arg("ble_name").c_str(), sizeof(config.ble_server_name) - 1);
+    }
+
     // Direct mode (Supabase)
     if (_server->hasArg("sb_url")) {
         strncpy(config.supabase_url, _server->arg("sb_url").c_str(), sizeof(config.supabase_url) - 1);
@@ -132,6 +148,10 @@ void WebPortal::handleScan() {
     _server->send(200, "application/json", scanNetworks());
 }
 
+void WebPortal::handleScanBLE() {
+    _server->send(200, "application/json", scanBLEDevices());
+}
+
 void WebPortal::handleNotFound() {
     // Captive portal - redirect to root
     _server->sendHeader("Location", "http://192.168.4.1/", true);
@@ -153,6 +173,58 @@ String WebPortal::scanNetworks() {
 
     json += "]";
     WiFi.scanDelete();
+    return json;
+}
+
+String WebPortal::scanBLEDevices() {
+    Serial.println("[Portal] Starting BLE scan...");
+
+    // Initialize BLE if not already done
+    if (!BLEDevice::getInitialized()) {
+        BLEDevice::init("BitsperWatch");
+    }
+
+    BLEScan* pBLEScan = BLEDevice::getScan();
+    pBLEScan->setActiveScan(true);
+    pBLEScan->setInterval(100);
+    pBLEScan->setWindow(99);
+
+    // Scan for 5 seconds
+    BLEScanResults* pResults = pBLEScan->start(5, false);
+
+    int count = pResults->getCount();
+    Serial.printf("[Portal] BLE scan complete. Found %d devices\n", count);
+
+    String json = "[";
+    int added = 0;
+
+    for (int i = 0; i < count; i++) {
+        BLEAdvertisedDevice device = pResults->getDevice(i);
+
+        // Get device info
+        String name = device.haveName() ? device.getName().c_str() : "";
+        String addr = device.getAddress().toString().c_str();
+        int rssi = device.getRSSI();
+
+        // Skip devices without names (likely not BitsperBox)
+        // But include all for now so user can see what's available
+        if (added > 0) json += ",";
+        json += "{";
+        json += "\"name\":\"" + (name.length() > 0 ? name : "(Sin nombre)") + "\",";
+        json += "\"address\":\"" + addr + "\",";
+        json += "\"rssi\":" + String(rssi);
+        json += "}";
+        added++;
+
+        Serial.printf("[Portal]   - %s (%s) RSSI: %d\n",
+                      name.length() > 0 ? name.c_str() : "(no name)",
+                      addr.c_str(), rssi);
+    }
+
+    json += "]";
+
+    pBLEScan->clearResults();
+
     return json;
 }
 
@@ -433,13 +505,19 @@ String WebPortal::generateHTML() {
                 <input type="password" name="password" id="password" placeholder="Contrasena del WiFi">
             </div>
 
-            <!-- BLE Info (shown for BLE mode) -->
-            <div class="card section" id="ble-info">
-                <h2><span class="num">2</span> Conexion Bluetooth</h2>
-                <div class="info-box">
-                    <p><strong>No necesitas configurar nada!</strong></p>
-                    <p>El reloj buscara automaticamente el BitsperBox por Bluetooth cuando se encienda.</p>
-                    <p style="margin-top:10px;color:#666;">Asegurate que el BitsperBox tenga Bluetooth activado.</p>
+            <!-- BLE Config (shown for BLE mode) -->
+            <div class="card section" id="ble-section">
+                <h2><span class="num">2</span> Dispositivo Bluetooth</h2>
+                <button type="button" class="scan-btn" onclick="scanBLE()">
+                    &#128268; Buscar Dispositivos BLE
+                </button>
+                <div id="ble-devices" class="networks"></div>
+                <input type="hidden" name="ble_addr" id="ble_addr">
+                <input type="hidden" name="ble_name" id="ble_name">
+                <div id="ble-selected" style="display:none;background:rgba(0,217,255,0.1);padding:14px;border-radius:12px;margin-top:12px;">
+                    <div style="color:#00d9ff;font-weight:600;margin-bottom:4px;">Seleccionado:</div>
+                    <div id="ble-selected-name" style="color:#fff;"></div>
+                    <div id="ble-selected-addr" style="color:#666;font-size:12px;font-family:monospace;"></div>
                 </div>
             </div>
 
@@ -482,11 +560,11 @@ String WebPortal::generateHTML() {
 
             // Show/hide sections
             var showWifi = (mode === 'wifi' || mode === 'both');
-            var showBleInfo = (mode === 'ble');
+            var showBle = (mode === 'ble' || mode === 'both');
             var showIp = (mode === 'wifi' || mode === 'both');
 
             document.getElementById('wifi-section').className = 'card section' + (showWifi ? ' active' : '');
-            document.getElementById('ble-info').className = 'card section' + (showBleInfo ? ' active' : '');
+            document.getElementById('ble-section').className = 'card section' + (showBle ? ' active' : '');
             document.getElementById('ip-section').className = 'card section' + (showIp ? ' active' : '');
 
             // Update step numbers
@@ -523,6 +601,36 @@ String WebPortal::generateHTML() {
         function selectNet(ssid) {
             document.getElementById('ssid').value = ssid;
             document.getElementById('password').focus();
+        }
+
+        function scanBLE() {
+            document.getElementById('ble-devices').innerHTML = '<div style="color:#888;text-align:center;padding:20px;">Buscando dispositivos Bluetooth...<br><small>(Esto toma ~5 segundos)</small></div>';
+            fetch('/scanble')
+                .then(r => r.json())
+                .then(devs => {
+                    var h = '';
+                    devs.sort((a, b) => b.rssi - a.rssi);
+                    devs.forEach(d => {
+                        var sig = d.rssi > -50 ? '&#9679;&#9679;&#9679;&#9679;' :
+                                  d.rssi > -70 ? '&#9679;&#9679;&#9679;&#9675;' :
+                                  d.rssi > -80 ? '&#9679;&#9679;&#9675;&#9675;' : '&#9679;&#9675;&#9675;&#9675;';
+                        h += '<div class="network" onclick="selectBLE(\'' + d.address.replace(/'/g, "\\'") + '\', \'' + d.name.replace(/'/g, "\\'") + '\')">';
+                        h += '<span class="name">&#128268; ' + d.name + '</span>';
+                        h += '<span class="signal">' + sig + '</span></div>';
+                    });
+                    document.getElementById('ble-devices').innerHTML = h || '<div style="color:#888;text-align:center;padding:20px;">No se encontraron dispositivos BLE</div>';
+                })
+                .catch(e => {
+                    document.getElementById('ble-devices').innerHTML = '<div style="color:#f66;text-align:center;padding:20px;">Error al buscar</div>';
+                });
+        }
+
+        function selectBLE(addr, name) {
+            document.getElementById('ble_addr').value = addr;
+            document.getElementById('ble_name').value = name;
+            document.getElementById('ble-selected').style.display = 'block';
+            document.getElementById('ble-selected-name').textContent = name;
+            document.getElementById('ble-selected-addr').textContent = addr;
         }
 
         // Initialize view

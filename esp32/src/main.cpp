@@ -193,6 +193,9 @@ void updateConnectionStatus() {
     // Update display based on any active connection
     bool anyConnected = wifiConnected || bleConnected;
 
+    Serial.printf("[DISPLAY] updateConnectionStatus: wifi=%d, ble=%d, hasNotif=%d\n",
+                  wifiConnected, bleConnected, hasActiveNotification);
+
     if (!hasActiveNotification) {
         String modeText;
         if (wifiConnected && bleConnected) {
@@ -204,6 +207,7 @@ void updateConnectionStatus() {
         } else {
             modeText = "Desconectado";
         }
+        Serial.printf("[DISPLAY] Showing idle screen: connected=%d, mode=%s\n", anyConnected, modeText.c_str());
         Display.showIdle(anyConnected, modeText.c_str());
     }
 }
@@ -236,6 +240,13 @@ void startBLEClient() {
 
     // Initialize BLE
     BleClient.begin();
+
+    // Set target BLE address from config (if configured via captive portal)
+    if (strlen(deviceConfig.ble_server_address) > 0) {
+        BleClient.setTargetAddress(deviceConfig.ble_server_address);
+        Serial.printf("[BLE] Using configured BLE address: %s (%s)\n",
+                      deviceConfig.ble_server_address, deviceConfig.ble_server_name);
+    }
 
     // Set up notification callback - convert BLE notification to standard format
     BleClient.onNotification([](BLENotificationData& bleNotif) {

@@ -47,6 +47,12 @@ bool StorageManager::loadConfig(DeviceConfig& config) {
     config.bitsperbox_port = _prefs.getUShort("bb_port", 3334);
     strncpy(config.bitsperbox_ip, bbIp.c_str(), sizeof(config.bitsperbox_ip) - 1);
 
+    // Load BLE settings
+    String bleAddr = _prefs.getString("ble_addr", "");
+    String bleName = _prefs.getString("ble_name", "");
+    strncpy(config.ble_server_address, bleAddr.c_str(), sizeof(config.ble_server_address) - 1);
+    strncpy(config.ble_server_name, bleName.c_str(), sizeof(config.ble_server_name) - 1);
+
     // Load Supabase settings (for direct mode)
     String sbUrl = _prefs.getString("sb_url", "");
     String sbKey = _prefs.getString("sb_key", "");
@@ -79,6 +85,10 @@ bool StorageManager::saveConfig(const DeviceConfig& config) {
     // Save BitsperBox settings
     _prefs.putString("bb_ip", config.bitsperbox_ip);
     _prefs.putUShort("bb_port", config.bitsperbox_port);
+
+    // Save BLE settings
+    _prefs.putString("ble_addr", config.ble_server_address);
+    _prefs.putString("ble_name", config.ble_server_name);
 
     // Save Supabase settings
     _prefs.putString("sb_url", config.supabase_url);

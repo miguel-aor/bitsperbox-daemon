@@ -50,6 +50,10 @@ public:
     // Register device with BitsperBox
     void registerDevice(const char* deviceId, const char* deviceName);
 
+    // Set target server address (from config)
+    void setTargetAddress(const char* address);
+    const char* getTargetAddress();
+
     // Callbacks
     void onNotification(std::function<void(BLENotificationData&)> callback);
     void onConnectionChange(std::function<void(bool)> callback);
@@ -80,6 +84,9 @@ private:
     // Device info for registration
     char _deviceId[32] = {0};
     char _deviceName[32] = {0};
+
+    // Target server address (from config)
+    char _targetAddress[20] = {0};
 
     // Callbacks
     std::function<void(BLENotificationData&)> _onNotification = nullptr;

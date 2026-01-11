@@ -306,7 +306,10 @@ export class BLEBroadcaster extends EventEmitter {
      * Broadcast notification to all BLE-connected devices
      */
     broadcast(notification: NotificationPayload): void {
+        logger.info(`[BLE] Broadcasting to ${this.subscriptions.size} subscribers, blenoLoaded=${this.blenoLoaded}`);
+
         if (!this.blenoLoaded || this.subscriptions.size === 0) {
+            logger.warn(`[BLE] Cannot broadcast: blenoLoaded=${this.blenoLoaded}, subscriptions=${this.subscriptions.size}`);
             return;
         }
 
@@ -314,6 +317,9 @@ export class BLEBroadcaster extends EventEmitter {
             type: 'notification',
             ...notification
         };
+
+        const jsonStr = JSON.stringify(message);
+        logger.info(`[BLE] Sending message (${jsonStr.length} bytes): ${jsonStr}`);
 
         this.sendToSubscribers(message);
         logger.info(`[BLE] Notification broadcasted: Table ${notification.table} - ${notification.alert}`);
