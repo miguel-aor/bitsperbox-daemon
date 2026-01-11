@@ -76,6 +76,7 @@ export class RealtimeManager {
   private usePolling: boolean = false
   private lastOrderCheck: Date = new Date()
   private processedOrderIds: Set<string> = new Set()
+  private processedTicketIds: Set<string> = new Set()
   private ordersProcessed: number = 0
   private lastOrderTime: Date | null = null
   private realtimeStatus: string = 'disconnected'
@@ -536,6 +537,19 @@ export class RealtimeManager {
   }
 
   private async handleNewCustomerTicket(ticket: OrderTicket) {
+    // Skip if already processed (deduplication for multiple Realtime events)
+    if (this.processedTicketIds.has(ticket.id)) {
+      logger.debug(`Ticket ${ticket.id} already processed, skipping`)
+      return
+    }
+    this.processedTicketIds.add(ticket.id)
+
+    // Clean up old processed IDs (keep last 100)
+    if (this.processedTicketIds.size > 100) {
+      const ids = Array.from(this.processedTicketIds)
+      this.processedTicketIds = new Set(ids.slice(-50))
+    }
+
     logger.info(`🧾 New customer ticket for order ${ticket.order_id}`)
 
     const claim = await this.claimPrintJob({
@@ -569,6 +583,8 @@ export class RealtimeManager {
 
   private async handleReprintTicket(ticket: OrderTicket) {
     logger.info(`🔄 Reprint requested for ticket ${ticket.id}`)
+    // Remove from processed set to allow reprint
+    this.processedTicketIds.delete(ticket.id)
     await this.handleNewCustomerTicket(ticket)
   }
 

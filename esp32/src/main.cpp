@@ -61,6 +61,11 @@ bool wifiConnected = false;
 bool bleConnected = false;
 
 // ============================================
+// Forward Declarations
+// ============================================
+void updateConnectionStatus();
+
+// ============================================
 // Button Handling
 // ============================================
 
@@ -87,8 +92,8 @@ void setupButtons() {
 void dismissNotification() {
     hasActiveNotification = false;
     Display.blinkAlert(false);
-    const char* modeText = strcmp(deviceConfig.mode, "direct") == 0 ? "Supabase" : "BitsperBox";
-    Display.showIdle(WsClient.isConnected(), modeText);
+    // Use updateConnectionStatus() to show correct WiFi/BLE status
+    updateConnectionStatus();
     Serial.println("[NOTIF] Notification dismissed");
 }
 
@@ -127,8 +132,8 @@ void handleButtons() {
             if (currentState == STATE_CONNECTED && !hasActiveNotification) {
                 Display.showConnected(WifiMgr.getSSID().c_str(), WifiMgr.getIPAddress().c_str());
                 delay(3000);
-                const char* modeText = strcmp(deviceConfig.mode, "direct") == 0 ? "Supabase" : "BitsperBox";
-                Display.showIdle(WsClient.isConnected(), modeText);
+                // Use updateConnectionStatus() to show correct WiFi/BLE status
+                updateConnectionStatus();
             }
         }
     }

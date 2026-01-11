@@ -180,6 +180,22 @@ void BitsperBoxBLEClient::loop() {
         _lastReconnect = 0;
         _doScan = true;
     }
+
+    // Heartbeat to keep connection alive (every 30 seconds)
+    if (_connected && _pClient != nullptr) {
+        unsigned long now = millis();
+        if (now - _lastHeartbeat > 30000) {
+            _lastHeartbeat = now;
+
+            // Verify connection is still valid
+            if (!_pClient->isConnected()) {
+                Serial.println("[BLE] Connection lost (detected in heartbeat)");
+                handleDisconnect();
+            } else {
+                Serial.println("[BLE] Heartbeat - connection OK");
+            }
+        }
+    }
 }
 
 void BitsperBoxBLEClient::startScan() {
@@ -288,6 +304,9 @@ void BitsperBoxBLEClient::handleConnect() {
     _connected = true;
     _state = BLE_STATE_CONNECTED;
     _reconnectAttempts = 0;
+    _lastHeartbeat = millis();  // Reset heartbeat timer
+
+    Serial.println("[BLE] handleConnect() called - connection established");
 
     // Send registration if we have device info
     if (strlen(_deviceId) > 0) {
@@ -302,18 +321,22 @@ void BitsperBoxBLEClient::handleConnect() {
 }
 
 void BitsperBoxBLEClient::handleDisconnect() {
+    Serial.println("[BLE] handleDisconnect() called!");
+    Serial.printf("[BLE] Previous state: connected=%d, state=%d\n", _connected, _state);
+
     _connected = false;
     _state = BLE_STATE_DISCONNECTED;
     _pNotifyChar = nullptr;
     _pRegisterChar = nullptr;
 
-    Serial.println("[BLE] Disconnected from BitsperBox");
+    Serial.println("[BLE] Disconnected from BitsperBox - will attempt reconnect");
 
     if (_onConnectionChange) {
         _onConnectionChange(false);
     }
 
-    // Schedule reconnection
+    // Schedule reconnection immediately (not with backoff for first attempt)
+    _reconnectAttempts = 0;  // Reset attempts to reconnect quickly
     scheduleReconnect();
 }
 

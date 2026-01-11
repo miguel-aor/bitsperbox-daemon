@@ -79,6 +79,7 @@ private:
     bool _doScan = false;
     unsigned long _lastScanTime = 0;
     unsigned long _lastReconnect = 0;
+    unsigned long _lastHeartbeat = 0;
     int _reconnectAttempts = 0;
 
     // Device info for registration
