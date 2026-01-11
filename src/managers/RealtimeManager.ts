@@ -77,6 +77,7 @@ export class RealtimeManager {
   private lastOrderCheck: Date = new Date()
   private processedOrderIds: Set<string> = new Set()
   private processedTicketIds: Set<string> = new Set()
+  private processedCustomerTicketOrderIds: Set<string> = new Set()
   private ordersProcessed: number = 0
   private lastOrderTime: Date | null = null
   private realtimeStatus: string = 'disconnected'
@@ -536,21 +537,36 @@ export class RealtimeManager {
     }
   }
 
-  private async handleNewCustomerTicket(ticket: OrderTicket) {
-    // Skip if already processed (deduplication for multiple Realtime events)
+  private async handleNewCustomerTicket(ticket: OrderTicket, isReprint: boolean = false) {
+    // Skip if already processed by ticket ID (deduplication for multiple Realtime events)
     if (this.processedTicketIds.has(ticket.id)) {
-      logger.debug(`Ticket ${ticket.id} already processed, skipping`)
+      logger.debug(`Ticket ${ticket.id} already processed by ticket ID, skipping`)
       return
     }
+
+    // For non-reprints, also check by order_id to prevent multiple customer tickets per order
+    if (!isReprint && this.processedCustomerTicketOrderIds.has(ticket.order_id)) {
+      logger.debug(`Customer ticket for order ${ticket.order_id} already processed, skipping (ticket: ${ticket.id})`)
+      return
+    }
+
+    // Mark as processed
     this.processedTicketIds.add(ticket.id)
+    if (!isReprint) {
+      this.processedCustomerTicketOrderIds.add(ticket.order_id)
+    }
 
     // Clean up old processed IDs (keep last 100)
     if (this.processedTicketIds.size > 100) {
       const ids = Array.from(this.processedTicketIds)
       this.processedTicketIds = new Set(ids.slice(-50))
     }
+    if (this.processedCustomerTicketOrderIds.size > 100) {
+      const ids = Array.from(this.processedCustomerTicketOrderIds)
+      this.processedCustomerTicketOrderIds = new Set(ids.slice(-50))
+    }
 
-    logger.info(`🧾 New customer ticket for order ${ticket.order_id}`)
+    logger.info(`🧾 ${isReprint ? 'REPRINT: ' : ''}New customer ticket for order ${ticket.order_id} (ticket: ${ticket.id})`)
 
     const claim = await this.claimPrintJob({
       jobType: 'customer_ticket',
@@ -582,10 +598,11 @@ export class RealtimeManager {
   }
 
   private async handleReprintTicket(ticket: OrderTicket) {
-    logger.info(`🔄 Reprint requested for ticket ${ticket.id}`)
-    // Remove from processed set to allow reprint
+    logger.info(`🔄 Reprint requested for ticket ${ticket.id} (order: ${ticket.order_id})`)
+    // Remove from processed sets to allow reprint
     this.processedTicketIds.delete(ticket.id)
-    await this.handleNewCustomerTicket(ticket)
+    this.processedCustomerTicketOrderIds.delete(ticket.order_id)
+    await this.handleNewCustomerTicket(ticket, true)
   }
 
   private async handleNewCashReport(report: CashReport) {
