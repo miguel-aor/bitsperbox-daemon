@@ -242,3 +242,102 @@ export interface MultiPrintResult {
   printerName: string
   error?: string
 }
+
+// ============================================
+// Local Print API Types (Frontend → BitsperBox)
+// ============================================
+
+/**
+ * Request for direct printing from frontend
+ */
+export interface LocalPrintRequest {
+  escpos_base64: string
+  job_type: 'kitchen_order' | 'customer_ticket' | 'cash_report' | 'addition' | 'station_ticket'
+  role?: PrinterRole
+  station_id?: string
+  copies?: number
+  open_cash_drawer?: boolean
+  metadata: {
+    order_id?: string
+    ticket_id?: string
+    restaurant_id: string
+    device_id: string
+    job_id?: string  // From claim_print_job
+    addition_group_id?: string
+  }
+}
+
+/**
+ * Response from local print API
+ */
+export interface LocalPrintResponse {
+  success: boolean
+  printed_at?: string
+  printer_name?: string
+  error?: string
+  retryable?: boolean
+}
+
+/**
+ * Request for batch station ticket printing
+ */
+export interface StationTicketsRequest {
+  tickets: Array<{
+    station_id: string
+    station_name: string
+    escpos_base64: string
+    copies: number
+  }>
+  metadata: {
+    order_id: string
+    restaurant_id: string
+    device_id: string
+    job_id?: string
+  }
+}
+
+/**
+ * Response for batch station ticket printing
+ */
+export interface StationTicketsResponse {
+  success: boolean
+  results: Array<{
+    station_id: string
+    station_name: string
+    success: boolean
+    printer_name?: string
+    error?: string
+  }>
+}
+
+/**
+ * Request for opening cash drawer
+ */
+export interface CashDrawerRequest {
+  role?: 'customer_ticket' | 'fiscal'
+}
+
+/**
+ * Discovery response for frontend
+ */
+export interface DiscoveryResponse {
+  device_id: string
+  restaurant_id: string
+  version: string
+  mode: 'legacy' | 'multi-printer'
+  status: 'ready' | 'busy' | 'error'
+  printers: {
+    count: number
+    roles: {
+      kitchen_default: boolean
+      customer_ticket: boolean
+      fiscal: boolean
+      stations: string[]
+    }
+  }
+  capabilities: {
+    cash_drawer: boolean
+    station_routing: boolean
+    multi_printer: boolean
+  }
+}

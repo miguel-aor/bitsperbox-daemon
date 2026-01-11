@@ -22,7 +22,20 @@ import {
 } from '../utils/config.js'
 import { PrinterManager } from '../managers/PrinterManager.js'
 import { PrinterRegistry } from '../managers/PrinterRegistry.js'
-import type { DeviceConfig, PrinterConfig, LocalPrinter, PrinterAssignment } from '../types/index.js'
+import { PrintService } from '../services/PrintService.js'
+import type {
+  DeviceConfig,
+  PrinterConfig,
+  LocalPrinter,
+  PrinterAssignment,
+  LocalPrintRequest,
+  StationTicketsRequest,
+  CashDrawerRequest,
+  DiscoveryResponse,
+} from '../types/index.js'
+
+// Version for discovery
+const FIRMWARE_VERSION = '2.0.0'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -45,6 +58,7 @@ interface WebServerOptions {
   port?: number
   printerManager?: PrinterManager
   printerRegistry?: PrinterRegistry
+  printService?: PrintService
   getStatus?: () => StatusInfo
 }
 
@@ -60,6 +74,7 @@ export class WebServer {
   private port: number
   private printerManager?: PrinterManager
   private printerRegistry?: PrinterRegistry
+  private printService?: PrintService
   private getStatus?: () => StatusInfo
   private server?: ReturnType<typeof this.app.listen>
 
@@ -68,6 +83,7 @@ export class WebServer {
     this.port = options.port || 3333
     this.printerManager = options.printerManager
     this.printerRegistry = options.printerRegistry
+    this.printService = options.printService
     this.getStatus = options.getStatus
 
     this.setupMiddleware()
@@ -573,6 +589,195 @@ export class WebServer {
       }
     })
 
+    // ============================================
+    // Local Print API (Frontend → BitsperBox Direct)
+    // ============================================
+
+    // Device discovery endpoint
+    this.app.get('/api/discovery', (_req: Request, res: Response) => {
+      try {
+        const config = getConfig()
+        const localPrinters = getLocalPrinters()
+        const assignments = getPrinterAssignments()
+
+        // Build roles status
+        const roles = {
+          kitchen_default: assignments.some(a => a.role === 'kitchen_default'),
+          customer_ticket: assignments.some(a => a.role === 'customer_ticket'),
+          fiscal: assignments.some(a => a.role === 'fiscal'),
+          stations: assignments
+            .filter(a => a.role === 'station' && a.stationId)
+            .map(a => a.stationId!)
+        }
+
+        // Check cash drawer capability
+        const customerTicketAssignment = assignments.find(a => a.role === 'customer_ticket')
+        const hasCashDrawer = customerTicketAssignment?.cashDrawerEnabled ?? false
+
+        const response: DiscoveryResponse = {
+          device_id: config?.deviceId || 'unknown',
+          restaurant_id: config?.restaurantId || 'unknown',
+          version: FIRMWARE_VERSION,
+          mode: this.printerRegistry ? 'multi-printer' : 'legacy',
+          status: 'ready',
+          printers: {
+            count: localPrinters.length,
+            roles
+          },
+          capabilities: {
+            cash_drawer: hasCashDrawer,
+            station_routing: assignments.some(a => a.role === 'station'),
+            multi_printer: !!this.printerRegistry
+          }
+        }
+
+        res.json(response)
+      } catch (error) {
+        logger.error('Error in discovery endpoint', error)
+        res.status(500).json({ error: 'Discovery failed' })
+      }
+    })
+
+    // Direct print endpoint
+    this.app.post('/api/print', async (req: Request, res: Response) => {
+      if (!this.printService) {
+        res.status(503).json({
+          success: false,
+          error: 'Print service not available',
+          retryable: true
+        })
+        return
+      }
+
+      try {
+        const request = req.body as LocalPrintRequest
+
+        // Validate required fields
+        if (!request.escpos_base64) {
+          res.status(400).json({
+            success: false,
+            error: 'Missing escpos_base64 field',
+            retryable: false
+          })
+          return
+        }
+
+        if (!request.metadata?.restaurant_id) {
+          res.status(400).json({
+            success: false,
+            error: 'Missing metadata.restaurant_id',
+            retryable: false
+          })
+          return
+        }
+
+        // Verify restaurant matches
+        const config = getConfig()
+        if (config && request.metadata.restaurant_id !== config.restaurantId) {
+          res.status(403).json({
+            success: false,
+            error: 'Restaurant ID mismatch',
+            retryable: false
+          })
+          return
+        }
+
+        logger.info(`[API] POST /api/print - ${request.job_type} from ${request.metadata.device_id}`)
+
+        const result = await this.printService.printFromRequest(request)
+        res.json(result)
+      } catch (error) {
+        logger.error('Error in print endpoint', error)
+        res.status(500).json({
+          success: false,
+          error: 'Internal server error',
+          retryable: true
+        })
+      }
+    })
+
+    // Station tickets batch print endpoint
+    this.app.post('/api/print/station-tickets', async (req: Request, res: Response) => {
+      if (!this.printService) {
+        res.status(503).json({
+          success: false,
+          results: [],
+          error: 'Print service not available'
+        })
+        return
+      }
+
+      try {
+        const request = req.body as StationTicketsRequest
+
+        // Validate
+        if (!request.tickets || !Array.isArray(request.tickets)) {
+          res.status(400).json({
+            success: false,
+            results: [],
+            error: 'Missing or invalid tickets array'
+          })
+          return
+        }
+
+        if (!request.metadata?.restaurant_id) {
+          res.status(400).json({
+            success: false,
+            results: [],
+            error: 'Missing metadata.restaurant_id'
+          })
+          return
+        }
+
+        // Verify restaurant
+        const config = getConfig()
+        if (config && request.metadata.restaurant_id !== config.restaurantId) {
+          res.status(403).json({
+            success: false,
+            results: [],
+            error: 'Restaurant ID mismatch'
+          })
+          return
+        }
+
+        logger.info(`[API] POST /api/print/station-tickets - ${request.tickets.length} tickets for order ${request.metadata.order_id}`)
+
+        const result = await this.printService.printStationTicketsFromRequest(request)
+        res.json(result)
+      } catch (error) {
+        logger.error('Error in station-tickets endpoint', error)
+        res.status(500).json({
+          success: false,
+          results: [],
+          error: 'Internal server error'
+        })
+      }
+    })
+
+    // Open cash drawer endpoint
+    this.app.post('/api/cash-drawer/open', async (req: Request, res: Response) => {
+      if (!this.printService) {
+        res.status(503).json({ success: false, error: 'Print service not available' })
+        return
+      }
+
+      try {
+        const request = req.body as CashDrawerRequest
+        const role = request.role || 'customer_ticket'
+
+        logger.info(`[API] POST /api/cash-drawer/open - role: ${role}`)
+
+        const success = await this.printService.openCashDrawerFromRequest(role)
+        res.json({
+          success,
+          message: success ? 'Cash drawer opened' : 'Failed to open cash drawer'
+        })
+      } catch (error) {
+        logger.error('Error in cash-drawer endpoint', error)
+        res.status(500).json({ success: false, error: 'Internal server error' })
+      }
+    })
+
     // Health check
     this.app.get('/api/health', (_req: Request, res: Response) => {
       res.json({ status: 'ok', timestamp: new Date().toISOString() })
@@ -591,6 +796,10 @@ export class WebServer {
 
   setPrinterRegistry(printerRegistry: PrinterRegistry) {
     this.printerRegistry = printerRegistry
+  }
+
+  setPrintService(printService: PrintService) {
+    this.printService = printService
   }
 
   setStatusGetter(getStatus: () => StatusInfo) {

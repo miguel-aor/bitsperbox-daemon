@@ -461,6 +461,17 @@ export class RealtimeManager {
       this.processedOrderIds = new Set(ids.slice(-50))
     }
 
+    // Check if already handled via local print API
+    const alreadyHandled = await this.isJobAlreadyHandled({
+      jobType: 'kitchen_order',
+      orderId: order.id,
+    })
+
+    if (alreadyHandled) {
+      logger.info(`📦 Order #${order.order_number} already handled via local print, skipping Realtime`)
+      return
+    }
+
     logger.info(`📦 New order received: #${order.order_number} (${order.id})`)
 
     // Try to claim the print job
@@ -580,6 +591,18 @@ export class RealtimeManager {
       this.processedCustomerTicketOrderIds = new Set(ids.slice(-50))
     }
 
+    // Check if already handled via local print API
+    const alreadyHandled = await this.isJobAlreadyHandled({
+      jobType: 'customer_ticket',
+      orderId: ticket.order_id,
+      ticketId: ticket.id,
+    })
+
+    if (alreadyHandled) {
+      logger.info(`🧾 Customer ticket ${ticket.id} already handled via local print, skipping Realtime`)
+      return
+    }
+
     logger.info(`🧾 ${isReprint ? 'REPRINT: ' : ''}New customer ticket for order ${ticket.order_id} (ticket: ${ticket.id})`)
 
     const claim = await this.claimPrintJob({
@@ -638,6 +661,17 @@ export class RealtimeManager {
   }
 
   private async handleNewCashReport(report: CashReport) {
+    // Check if already handled via local print API
+    const alreadyHandled = await this.isJobAlreadyHandled({
+      jobType: 'cash_report',
+      reportId: report.id,
+    })
+
+    if (alreadyHandled) {
+      logger.info(`📊 Cash report ${report.id} already handled via local print, skipping Realtime`)
+      return
+    }
+
     logger.info(`📊 New cash report: ${report.report_type}`)
 
     const claim = await this.claimPrintJob({
@@ -665,6 +699,62 @@ export class RealtimeManager {
   private async handleReprintReport(report: CashReport) {
     logger.info(`🔄 Reprint requested for report ${report.id}`)
     await this.handleNewCashReport(report)
+  }
+
+  // ============================================
+  // Job Status Check (Local Print Support)
+  // ============================================
+
+  /**
+   * Check if a print job was already handled via local print API
+   * If the job exists and is claimed or completed, skip processing
+   */
+  private async isJobAlreadyHandled(params: {
+    jobType: 'kitchen_order' | 'addition' | 'customer_ticket' | 'cash_report'
+    orderId?: string
+    ticketId?: string
+    reportId?: string
+    additionGroupId?: string
+  }): Promise<boolean> {
+    try {
+      // Build the query based on job type
+      let query = this.supabase
+        .from('print_jobs')
+        .select('status')
+        .eq('restaurant_id', this.config.restaurantId)
+        .eq('job_type', params.jobType)
+        .in('status', ['claimed', 'completed'])
+
+      if (params.orderId) {
+        query = query.eq('order_id', params.orderId)
+      }
+      if (params.ticketId) {
+        query = query.eq('ticket_id', params.ticketId)
+      }
+      if (params.reportId) {
+        query = query.eq('report_id', params.reportId)
+      }
+      if (params.additionGroupId) {
+        query = query.eq('addition_group_id', params.additionGroupId)
+      }
+
+      const { data, error } = await query.maybeSingle()
+
+      if (error) {
+        logger.debug(`Error checking job status: ${error.message}`)
+        return false // On error, proceed with normal flow
+      }
+
+      if (data) {
+        logger.debug(`Job already handled via local print: ${params.jobType} (${params.orderId || params.ticketId || params.reportId})`)
+        return true
+      }
+
+      return false
+    } catch (error) {
+      logger.debug('Error checking job status:', error)
+      return false // On error, proceed with normal flow
+    }
   }
 
   // ============================================

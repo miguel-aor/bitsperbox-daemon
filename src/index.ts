@@ -184,6 +184,9 @@ async function main() {
     ? new PrintService(config, printerRegistry)
     : new PrintService(config, printerManager)
 
+  // Set printService on web server for local print API
+  webServer.setPrintService(printService)
+
   logger.info(`PrintService mode: ${printService.getStatus().mode}`)
 
   // ============================================

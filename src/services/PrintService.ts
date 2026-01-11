@@ -1,7 +1,17 @@
 import { logger } from '../utils/logger.js'
 import { PrinterManager } from '../managers/PrinterManager.js'
 import { PrinterRegistry } from '../managers/PrinterRegistry.js'
-import type { DeviceConfig, Order, StationTicket, MultiPrintResult } from '../types/index.js'
+import type {
+  DeviceConfig,
+  Order,
+  StationTicket,
+  MultiPrintResult,
+  LocalPrintRequest,
+  LocalPrintResponse,
+  StationTicketsRequest,
+  StationTicketsResponse,
+  PrinterRole
+} from '../types/index.js'
 
 /**
  * PrintService - Servicio de impresión con soporte multi-impresora
@@ -411,6 +421,189 @@ export class PrintService {
    */
   getRegistry(): PrinterRegistry | null {
     return this.printerRegistry
+  }
+
+  // ============================================
+  // Local Print API Methods (Frontend → BitsperBox)
+  // ============================================
+
+  /**
+   * Print from a local API request (frontend direct print)
+   * This is the main entry point for local-first printing
+   */
+  async printFromRequest(request: LocalPrintRequest): Promise<LocalPrintResponse> {
+    const startTime = Date.now()
+    logger.print(`[LocalPrint] Received ${request.job_type} job from ${request.metadata.device_id}`)
+
+    try {
+      let success = false
+      let printerName = 'unknown'
+
+      // Determine the role based on job_type if not specified
+      const role: PrinterRole = request.role || this.getDefaultRoleForJobType(request.job_type)
+
+      // Print based on role
+      if (this.useRegistry && this.printerRegistry) {
+        const copies = request.copies || 1
+
+        for (let i = 0; i < copies; i++) {
+          // Use printBase64ByRole with optional stationId
+          const result = await this.printerRegistry.printBase64ByRole(
+            role,
+            request.escpos_base64,
+            request.station_id
+          )
+          success = result.success
+          printerName = result.printerName || role
+
+          if (!success) break
+        }
+      } else if (this.printerManager) {
+        // Legacy mode: single printer
+        const copies = request.copies || 1
+        for (let i = 0; i < copies; i++) {
+          success = await this.printerManager.printBase64(request.escpos_base64)
+          if (!success) break
+        }
+        printerName = 'default'
+      } else {
+        return {
+          success: false,
+          error: 'No printer configured',
+          retryable: false
+        }
+      }
+
+      // Handle cash drawer if requested
+      if (success && request.open_cash_drawer) {
+        await this.openCashDrawer()
+      }
+
+      const elapsed = Date.now() - startTime
+      logger.print(`[LocalPrint] ${success ? 'Success' : 'Failed'} in ${elapsed}ms → ${printerName}`)
+
+      return {
+        success,
+        printed_at: success ? new Date().toISOString() : undefined,
+        printer_name: success ? printerName : undefined,
+        error: success ? undefined : 'Print failed',
+        retryable: !success
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+      logger.error(`[LocalPrint] Error: ${errorMessage}`)
+
+      return {
+        success: false,
+        error: errorMessage,
+        retryable: true
+      }
+    }
+  }
+
+  /**
+   * Print station tickets from a local API request
+   */
+  async printStationTicketsFromRequest(request: StationTicketsRequest): Promise<StationTicketsResponse> {
+    logger.print(`[LocalPrint] Printing ${request.tickets.length} station tickets for order ${request.metadata.order_id}`)
+
+    const results: StationTicketsResponse['results'] = []
+    let allSuccess = true
+
+    for (const ticket of request.tickets) {
+      try {
+        let success = false
+        let printerName = 'unknown'
+
+        if (this.useRegistry && this.printerRegistry) {
+          // Use station role with station_id
+          const copies = ticket.copies || 1
+
+          for (let i = 0; i < copies; i++) {
+            const result = await this.printerRegistry.printBase64ByRole(
+              'station',
+              ticket.escpos_base64,
+              ticket.station_id
+            )
+            success = result.success
+            printerName = result.printerName || `station-${ticket.station_id}`
+
+            if (!success) break
+          }
+        } else if (this.printerManager) {
+          // Legacy mode: all to single printer
+          const copies = ticket.copies || 1
+          for (let i = 0; i < copies; i++) {
+            success = await this.printerManager.printBase64(ticket.escpos_base64)
+            if (!success) break
+          }
+          printerName = 'default'
+        }
+
+        results.push({
+          station_id: ticket.station_id,
+          station_name: ticket.station_name,
+          success,
+          printer_name: success ? printerName : undefined,
+          error: success ? undefined : 'Print failed'
+        })
+
+        if (!success) allSuccess = false
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+        results.push({
+          station_id: ticket.station_id,
+          station_name: ticket.station_name,
+          success: false,
+          error: errorMessage
+        })
+        allSuccess = false
+      }
+    }
+
+    return {
+      success: allSuccess,
+      results
+    }
+  }
+
+  /**
+   * Open cash drawer from local API request
+   */
+  async openCashDrawerFromRequest(role?: 'customer_ticket' | 'fiscal'): Promise<boolean> {
+    logger.print(`[LocalPrint] Opening cash drawer (role: ${role || 'customer_ticket'})`)
+
+    try {
+      if (this.useRegistry && this.printerRegistry) {
+        return await this.printerRegistry.openCashDrawerByRole(role || 'customer_ticket')
+      } else if (this.printerManager) {
+        const cashDrawerCommand = Buffer.from([0x1b, 0x70, 0x00, 0x19, 0xfa])
+        return await this.printerManager.print(cashDrawerCommand)
+      }
+      return false
+    } catch (error) {
+      logger.error('[LocalPrint] Error opening cash drawer:', error)
+      return false
+    }
+  }
+
+  /**
+   * Get default printer role for a job type
+   */
+  private getDefaultRoleForJobType(jobType: LocalPrintRequest['job_type']): PrinterRole {
+    switch (jobType) {
+      case 'kitchen_order':
+      case 'addition':
+        return 'kitchen_default'
+      case 'customer_ticket':
+        return 'customer_ticket'
+      case 'cash_report':
+        return 'fiscal'
+      case 'station_ticket':
+        return 'station'
+      default:
+        return 'kitchen_default'
+    }
   }
 }
 
